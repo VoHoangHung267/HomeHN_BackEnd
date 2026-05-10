@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  APP_NAME: homehn-backend
+  APP_DIR: /home/ubuntu/homehn-backend
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -27,8 +31,8 @@ jobs:
       - name: Build application
         run: ./mvnw clean package -DskipTests
 
-      - name: Rename jar to app.jar
-        run: cp target/*SNAPSHOT.jar app.jar
+      - name: Prepare deployable jar
+        run: cp target/${{ env.APP_NAME }}-*.jar ${{ env.APP_NAME }}.jar
 
       - name: Copy jar to EC2
         uses: appleboy/scp-action@v0.1.7
@@ -37,8 +41,8 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_PORT }}
-          source: "app.jar"
-          target: "/home/ubuntu/taskoryx-backend"
+          source: "${{ env.APP_NAME }}.jar"
+          target: "${{ env.APP_DIR }}"
 
       - name: Restart app on EC2
         uses: appleboy/ssh-action@v1.0.3
@@ -48,15 +52,17 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_PORT }}
           script: |
-            APP_DIR=/home/ubuntu/taskoryx-backend
+            APP_NAME="${{ env.APP_NAME }}"
+            APP_DIR="${{ env.APP_DIR }}"
             mkdir -p $APP_DIR/logs $APP_DIR/uploads
 
             cat > $APP_DIR/run.sh << 'EOF'
             #!/bin/bash
             set -e
 
-            APP_DIR=/home/ubuntu/taskoryx-backend
-            JAR_FILE=$APP_DIR/app.jar
+            APP_NAME=homehn-backend
+            APP_DIR=/home/ubuntu/homehn-backend
+            JAR_FILE=$APP_DIR/$APP_NAME.jar
             LOG_FILE=$APP_DIR/logs/app.log
 
             mkdir -p $APP_DIR/logs
