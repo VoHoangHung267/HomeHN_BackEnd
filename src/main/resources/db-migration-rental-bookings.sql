@@ -1,0 +1,41 @@
+CREATE TABLE IF NOT EXISTS rental_bookings (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    room_id BIGINT NOT NULL,
+    seeker_id BIGINT NOT NULL,
+    landlord_id BIGINT NOT NULL,
+    tenant_full_name VARCHAR(255) NOT NULL,
+    tenant_phone VARCHAR(50) NOT NULL,
+    tenant_email VARCHAR(255),
+    tenant_identity_number VARCHAR(100),
+    move_in_date DATE NOT NULL,
+    lease_months INT NOT NULL,
+    occupant_count INT NOT NULL,
+    monthly_rent DECIMAL(12,2) NOT NULL,
+    deposit_amount DECIMAL(12,2) NOT NULL,
+    contract_code VARCHAR(64) NOT NULL UNIQUE,
+    contract_terms TEXT,
+    note TEXT,
+    landlord_note TEXT,
+    status ENUM('PENDING_PAYMENT','DEPOSIT_PAID','CONFIRMED','REJECTED','CANCELLED','PAYMENT_FAILED') NOT NULL DEFAULT 'PENDING_PAYMENT',
+    payment_status ENUM('PENDING','PAID','FAILED','CANCELLED') NOT NULL DEFAULT 'PENDING',
+    payment_provider VARCHAR(32) NOT NULL DEFAULT 'VNPAY',
+    payment_order_id VARCHAR(100) UNIQUE,
+    payment_request_id VARCHAR(100) UNIQUE,
+    payment_pay_url TEXT,
+    payment_deeplink TEXT,
+    payment_qr_code_url TEXT,
+    payment_trans_id BIGINT,
+    payment_result_code INT,
+    payment_message TEXT,
+    deposit_paid_at DATETIME,
+    confirmed_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_rental_booking_room FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rental_booking_seeker FOREIGN KEY (seeker_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rental_booking_landlord FOREIGN KEY (landlord_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_rental_booking_seeker ON rental_bookings(seeker_id, created_at);
+CREATE INDEX idx_rental_booking_landlord ON rental_bookings(landlord_id, created_at);
+CREATE INDEX idx_rental_booking_room_status ON rental_bookings(room_id, status);
