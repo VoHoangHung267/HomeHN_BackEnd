@@ -43,6 +43,7 @@ jobs:
           port: ${{ secrets.EC2_PORT }}
           source: "${{ env.APP_NAME }}.jar"
           target: "${{ env.APP_DIR }}"
+          debug: true
 
       - name: Restart app on EC2
         uses: appleboy/ssh-action@v1.0.3
@@ -51,6 +52,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_PORT }}
+          debug: true
           script: |
             APP_NAME="${{ env.APP_NAME }}"
             APP_DIR="${{ env.APP_DIR }}"
