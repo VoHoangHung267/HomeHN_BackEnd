@@ -21,6 +21,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.*;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -33,7 +34,7 @@ public class SecurityConfig {
     private final UserDetailsService userDetailsService;
 
     @Value("${app.cors.allowed-origins}")
-    private String allowedOrigin;
+    private String allowedOrigins;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -50,6 +51,7 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/**").permitAll()
+                        .requestMatchers("/ai/**").permitAll()
                         .requestMatchers("/bookings/vnpay/ipn").permitAll()
                         .requestMatchers("/bookings/vnpay/return").permitAll()
                         .requestMatchers(HttpMethod.GET, "/rooms/**").permitAll()
@@ -76,7 +78,10 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsSource() {
         var cfg = new CorsConfiguration();
-        cfg.setAllowedOrigins(List.of(allowedOrigin));
+        cfg.setAllowedOriginPatterns(Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList());
         cfg.setAllowedMethods(List.of("GET","POST","PUT","DELETE","PATCH","OPTIONS"));
         cfg.setAllowedHeaders(List.of("*"));
         cfg.setAllowCredentials(true);
