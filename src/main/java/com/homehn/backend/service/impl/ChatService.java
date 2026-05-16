@@ -2,6 +2,7 @@ package com.homehn.backend.service.impl;
 
 import com.homehn.backend.dto.response.ChatRoomResponse;
 import com.homehn.backend.dto.response.MessageResponse;
+import com.homehn.backend.dto.response.RoomResponse;
 import com.homehn.backend.entity.ChatRoomEntity;
 import com.homehn.backend.entity.MessageEntity;
 import com.homehn.backend.entity.RoomEntity;
@@ -94,6 +95,17 @@ public class ChatService {
             resp.setUnreadCount(messageRepo.countUnread(cr.getId(), userId));
             return resp;
         }).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public RoomResponse getRoomContext(Long chatRoomId, Long currentUserId) {
+        ChatRoomEntity chatRoom = requireParticipant(chatRoomId, currentUserId);
+        RoomEntity room = roomRepo.findByIdWithImages(chatRoom.getRoom().getId())
+                .orElseThrow(() -> new AppException("Phòng không tồn tại", 404));
+
+        RoomResponse response = RoomResponse.from(room);
+        response.setFavorited(false);
+        return response;
     }
 
     private MessageResponse toMessageResponse(MessageEntity m) {

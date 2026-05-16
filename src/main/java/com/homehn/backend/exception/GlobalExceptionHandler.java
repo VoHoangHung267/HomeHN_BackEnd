@@ -20,7 +20,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse<?>> handleAccess(AccessDeniedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.error("Bạn không có quyền thực hi�‡n hành �‘�™ng này"));
+                .body(ApiResponse.error("Bạn không có quyền thực hiện hành động này"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -35,12 +35,12 @@ public class GlobalExceptionHandler {
             }
         });
         return ResponseEntity.badRequest()
-                .body(new ApiResponse<>(false, "Dữ li�‡u không hợp l�‡", errors));
+                .body(new ApiResponse<>(false, "Dữ liệu không hợp lệ", errors));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<?>> handleGeneral(Exception ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("Đã có l�—i xảy ra: " + ex.getMessage()));
+                .body(ApiResponse.error("Đã có lỗi xảy ra: " + ex.getMessage()));
     }
 }

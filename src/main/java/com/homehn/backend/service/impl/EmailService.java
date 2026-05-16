@@ -25,16 +25,16 @@ public class EmailService {
             message.setText("""
                     Xin chào,
 
-                    Bạn vừa yêu cầu �‘ặt lại mật khẩu cho tài khoản HomeHN.
-                    Vui lòng m�Ÿ liên kết sau �‘�ƒ tạo mật khẩu m�›i:
+                    Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản HomeHN.
+                    Vui lòng mở liên kết sau để tạo mật khẩu mới:
 
                     %s
 
-                    Liên kết có hi�‡u lực trong 30 phút. Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email.
+                    Liên kết có hiệu lực trong 30 phút. Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email.
                     """.formatted(resetLink));
             mailSender.send(message);
         } catch (MailException e) {
-            throw new AppException("Không th�ƒ gửi email �‘ặt lại mật khẩu: " + e.getMessage());
+            throw new AppException("Không thể gửi email đặt lại mật khẩu: " + e.getMessage());
         }
     }
 }

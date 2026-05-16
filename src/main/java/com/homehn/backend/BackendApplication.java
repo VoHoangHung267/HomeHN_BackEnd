@@ -2,6 +2,7 @@ package com.homehn.backend;
 
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
+import com.homehn.backend.config.GeminiProperties;
 import com.homehn.backend.config.VnpayProperties;
 import com.homehn.backend.entity.UserEntity;
 import com.homehn.backend.repository.UserRepository;
@@ -17,7 +18,7 @@ import org.springframework.stereotype.Service;
 
 @EnableSpringDataWebSupport(pageSerializationMode = EnableSpringDataWebSupport.PageSerializationMode.VIA_DTO)
 @SpringBootApplication
-@EnableConfigurationProperties(VnpayProperties.class)
+@EnableConfigurationProperties({VnpayProperties.class, GeminiProperties.class})
 public class BackendApplication {
 
 	public static void main(String[] args) {

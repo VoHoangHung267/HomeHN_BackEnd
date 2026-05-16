@@ -58,7 +58,7 @@ public class NotificationController {
             @AuthenticationPrincipal UserPrincipal principal) {
         UserEntity user = userRepo.findById(principal.getId()).orElseThrow();
         notifRepo.markAllRead(user.getId());
-        return ResponseEntity.ok(ApiResponse.ok("Đã �‘ọc tất cả", null));
+        return ResponseEntity.ok(ApiResponse.ok("Đã đọc tất cả", null));
     }
 
     @PatchMapping("/{id}/read")

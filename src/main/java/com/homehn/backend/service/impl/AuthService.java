@@ -46,7 +46,7 @@ public class AuthService {
 
     public AuthResponse register(RegisterRequest req) {
         if (userRepo.existsByEmail(req.getEmail()))
-            throw new AppException("Email �‘ã �‘ược sử dụng");
+            throw new AppException("Email đã được sử dụng");
 
         var user = UserEntity.builder()
                 .email(req.getEmail())
@@ -66,25 +66,25 @@ public class AuthService {
             authManager.authenticate(
                     new UsernamePasswordAuthenticationToken(req.getEmail(), req.getPassword()));
         } catch (AuthenticationException e) {
-            throw new AppException("Email hoặc mật khẩu không �‘úng");
+            throw new AppException("Email hoặc mật khẩu không đúng");
         }
 
         var user = userRepo.findByEmail(req.getEmail())
-                .orElseThrow(() -> new AppException("Tài khoản không t�“n tại"));
+                .orElseThrow(() -> new AppException("T?i kho?n kh?ng t?n t?i"));
 
         if (!Boolean.TRUE.equals(user.getIsActive()))
-            throw new AppException("Tài khoản �‘ã b�‹ khoá", 403);
+            throw new AppException("Tài khoản đã bị khoá", 403);
 
         return buildAuthResponse(user);
     }
 
     public AuthResponse refreshToken(String token) {
         var rt = refreshTokenRepo.findByToken(token)
-                .orElseThrow(() -> new AppException("Refresh token không hợp l�‡", 401));
+                .orElseThrow(() -> new AppException("Refresh token không hợp lệ", 401));
 
         if (rt.getExpiresAt().isBefore(LocalDateTime.now())) {
             refreshTokenRepo.delete(rt);
-            throw new AppException("Refresh token �‘ã hết hạn, vui lòng �‘�ƒng nhập lại", 401);
+            throw new AppException("Refresh token đã hết hạn, vui lòng đểng nhập lại", 401);
         }
 
         return buildAuthResponse(rt.getUser());
@@ -95,27 +95,29 @@ public class AuthService {
     }
 
     public void forgotPassword(String email) {
-        userRepo.findByEmail(email).ifPresent(user -> {
-            passwordResetTokenRepo.deleteByUserId(user.getId());
-            String token = UUID.randomUUID().toString();
-            passwordResetTokenRepo.save(PasswordResetTokenEntity.builder()
-                    .user(user)
-                    .token(token)
-                    .expiresAt(LocalDateTime.now().plusMinutes(30))
-                    .build());
-            String resetLink = frontendUrl + "/auth/reset-password?token=" + token;
-            emailService.sendPasswordResetEmail(user.getEmail(), resetLink);
-        });
+        String normalizedEmail = email == null ? "" : email.trim();
+        UserEntity user = userRepo.findByEmailIgnoreCase(normalizedEmail)
+                .orElseThrow(() -> new AppException("Email không tồn tại trong hệ thống", 404));
+
+        passwordResetTokenRepo.deleteByUserId(user.getId());
+        String token = UUID.randomUUID().toString();
+        passwordResetTokenRepo.save(PasswordResetTokenEntity.builder()
+                .user(user)
+                .token(token)
+                .expiresAt(LocalDateTime.now().plusMinutes(30))
+                .build());
+        String resetLink = frontendUrl + "/auth/reset-password?token=" + token;
+        emailService.sendPasswordResetEmail(user.getEmail(), resetLink);
     }
 
     public void resetPassword(ResetPasswordRequest req) {
         PasswordResetTokenEntity resetToken = passwordResetTokenRepo.findByToken(req.getToken())
-                .orElseThrow(() -> new AppException("Liên kết �‘ặt lại mật khẩu không hợp l�‡", 400));
+                .orElseThrow(() -> new AppException("Liên kết đặt lại mật khẩu không hợp lệ", 400));
         if (resetToken.isUsed()) {
-            throw new AppException("Liên kết �‘ặt lại mật khẩu �‘ã �‘ược sử dụng", 400);
+            throw new AppException("Liên kết đặt lại mật khẩu đã được sử dụng", 400);
         }
         if (resetToken.isExpired()) {
-            throw new AppException("Liên kết �‘ặt lại mật khẩu �‘ã hết hạn", 400);
+            throw new AppException("Liên kết đặt lại mật khẩu đã hết hạn", 400);
         }
 
         UserEntity user = resetToken.getUser();
