@@ -34,6 +34,13 @@ class CloudinaryConfig {
 
     @Bean
     Cloudinary cloudinary() {
+        if (cloudName == null || cloudName.isBlank()
+                || apiKey == null || apiKey.isBlank()
+                || apiSecret == null || apiSecret.isBlank()) {
+            throw new IllegalStateException(
+                    "Cloudinary config is missing. Set cloudinary.cloud-name, cloudinary.api-key, cloudinary.api-secret."
+            );
+        }
         return new Cloudinary(ObjectUtils.asMap(
                 "cloud_name", cloudName,
                 "api_key",    apiKey,

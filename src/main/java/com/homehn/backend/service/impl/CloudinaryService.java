@@ -4,14 +4,15 @@ import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
 import com.homehn.backend.exception.AppException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class CloudinaryService {
 
     private final Cloudinary cloudinary;
@@ -26,8 +27,10 @@ public class CloudinaryService {
                     file.getBytes(),
                     ObjectUtils.asMap("folder", folder, "resource_type", resourceType)
             );
-        } catch (IOException e) {
-            throw new AppException("Upload tệp thất bại: " + e.getMessage());
+        } catch (Exception e) {
+            log.error("Cloudinary upload failed. folder={}, resourceType={}, fileName={}, size={}",
+                    folder, resourceType, file.getOriginalFilename(), file.getSize(), e);
+            throw new AppException("Upload tep len Cloudinary that bai: " + e.getMessage());
         }
     }
 
@@ -38,8 +41,9 @@ public class CloudinaryService {
     public void delete(String publicId, String resourceType) {
         try {
             cloudinary.uploader().destroy(publicId, ObjectUtils.asMap("resource_type", resourceType));
-        } catch (IOException e) {
-            throw new AppException("Xoá tệp thất bại: " + e.getMessage());
+        } catch (Exception e) {
+            log.error("Cloudinary delete failed. publicId={}, resourceType={}", publicId, resourceType, e);
+            throw new AppException("Xoa tep tren Cloudinary that bai: " + e.getMessage());
         }
     }
 

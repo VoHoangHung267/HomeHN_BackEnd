@@ -240,9 +240,13 @@ public class RoomService {
 
         for (int i = 0; i < files.size(); i++) {
             var uploaded = cloudinaryService.upload(files.get(i), "phongtro/rooms");
+            String imageUrl = (String) uploaded.get("secure_url");
+            if (imageUrl == null || imageUrl.isBlank()) {
+                imageUrl = (String) uploaded.get("url");
+            }
             var img = RoomImageEntity.builder()
                     .room(room)
-                    .imageUrl((String) uploaded.get("url"))
+                    .imageUrl(imageUrl)
                     .publicId((String) uploaded.get("public_id"))
                     .isPrimary(!hasImages && i == 0)
                     .sortOrder(room.getImages().size() + i)
