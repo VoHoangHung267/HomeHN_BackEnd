@@ -13,6 +13,8 @@ import com.homehn.backend.dto.response.RoomResponse;
 import com.homehn.backend.entity.RoomEntity;
 import com.homehn.backend.exception.AppException;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.json.JsonParserFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -36,6 +38,8 @@ import java.util.StringJoiner;
 @Service
 @RequiredArgsConstructor
 public class GeminiRoomCopyService {
+
+    private static final Logger log = LoggerFactory.getLogger(GeminiRoomCopyService.class);
 
     private static final Set<String> ALLOWED_AMENITIES = Set.of(
             "WiFi",
@@ -61,7 +65,7 @@ public class GeminiRoomCopyService {
         ensureEnabled();
         try {
             String text = requestJson(buildGeneratePrompt(request));
-            Map<String, Object> output = JsonParserFactory.getJsonParser().parseMap(text);
+            Map<String, Object> output = parseJsonObject(text, "generate-description");
             return new GenerateRoomDescriptionResponse(
                     stringValue(output.get("suggestedTitle")),
                     stringValue(output.get("suggestedDescription"))
@@ -85,7 +89,7 @@ public class GeminiRoomCopyService {
 
         try {
             String text = requestJson(buildExtractPrompt(rawDescription));
-            Map<String, Object> output = JsonParserFactory.getJsonParser().parseMap(text);
+            Map<String, Object> output = parseJsonObject(text, "extract-room-form");
             return new ExtractRoomFormResponse(
                     nullableString(output.get("title")),
                     nullableString(output.get("description")),
@@ -124,7 +128,7 @@ public class GeminiRoomCopyService {
 
         try {
             String text = requestJson(buildSearchPrompt(query));
-            Map<String, Object> output = JsonParserFactory.getJsonParser().parseMap(text);
+            Map<String, Object> output = parseJsonObject(text, "parse-search");
             return new AiSearchResponse(
                     nullableString(output.get("keyword")),
                     nullableString(output.get("district")),
@@ -157,7 +161,7 @@ public class GeminiRoomCopyService {
 
         try {
             String text = requestJson(buildChatPrompt(room, question));
-            Map<String, Object> output = JsonParserFactory.getJsonParser().parseMap(text);
+            Map<String, Object> output = parseJsonObject(text, "chat-room");
             return new ChatAssistantResponse(
                     nullableString(output.get("answer")),
                     nullableString(output.get("note")),
@@ -183,7 +187,7 @@ public class GeminiRoomCopyService {
 
         try {
             String text = requestJson(buildGeneralAssistantPrompt(question));
-            Map<String, Object> output = JsonParserFactory.getJsonParser().parseMap(text);
+            Map<String, Object> output = parseJsonObject(text, "chat-general");
             return new ChatAssistantResponse(
                     nullableString(output.get("answer")),
                     nullableString(output.get("note")),
@@ -255,6 +259,26 @@ public class GeminiRoomCopyService {
             throw new AppException("Gemini không trả về nội dung hợp lệ.", 502);
         }
         return unwrapJsonPayload(text);
+    }
+
+    private Map<String, Object> parseJsonObject(String text, String useCase) {
+        try {
+            return JsonParserFactory.getJsonParser().parseMap(text);
+        } catch (RuntimeException ex) {
+            log.error("Gemini {} returned invalid JSON payload: {}", useCase, abbreviate(text), ex);
+            throw new AppException("Gemini tráº£ vá» JSON khÃ´ng há»£p lá»‡.", 502);
+        }
+    }
+
+    private String abbreviate(String value) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.replace('\r', ' ').replace('\n', ' ').trim();
+        if (normalized.length() <= 1000) {
+            return normalized;
+        }
+        return normalized.substring(0, 1000) + "...";
     }
 
     private String buildGeneratePrompt(GenerateRoomDescriptionRequest request) {
