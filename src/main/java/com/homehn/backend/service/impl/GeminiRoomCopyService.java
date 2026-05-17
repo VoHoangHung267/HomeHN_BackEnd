@@ -26,13 +26,31 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 
 @Service
 @RequiredArgsConstructor
 public class GeminiRoomCopyService {
+
+    private static final Set<String> ALLOWED_AMENITIES = Set.of(
+            "WiFi",
+            "Điều hòa",
+            "Máy giặt",
+            "Tủ lạnh",
+            "Bếp từ",
+            "Nước nóng",
+            "Ban công",
+            "Thang máy",
+            "Giữ xe máy",
+            "Giữ ô tô",
+            "Camera an ninh",
+            "Bảo vệ 24/7"
+    );
 
     private final GeminiProperties properties;
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -228,11 +246,15 @@ public class GeminiRoomCopyService {
         }
 
         Map<String, Object> root = JsonParserFactory.getJsonParser().parseMap(response.body());
-        String text = nestedString(root, "candidates", 0, "content", "parts", 0, "text");
+        String text = extractCandidateText(root);
         if (text.isBlank()) {
+            String blockedReason = nestedString(root, "promptFeedback", "blockReason");
+            if (!blockedReason.isBlank()) {
+                throw new AppException("Gemini từ chối yêu cầu: " + blockedReason, 502);
+            }
             throw new AppException("Gemini không trả về nội dung hợp lệ.", 502);
         }
-        return text;
+        return unwrapJsonPayload(text);
     }
 
     private String buildGeneratePrompt(GenerateRoomDescriptionRequest request) {
@@ -464,6 +486,64 @@ public class GeminiRoomCopyService {
         return stringValue(current);
     }
 
+    @SuppressWarnings("unchecked")
+    private String extractCandidateText(Map<String, Object> root) {
+        Object candidatesObject = root.get("candidates");
+        if (!(candidatesObject instanceof List<?> candidates) || candidates.isEmpty()) {
+            return "";
+        }
+
+        Object firstCandidate = candidates.get(0);
+        if (!(firstCandidate instanceof Map<?, ?> candidateMap)) {
+            return "";
+        }
+
+        Object contentObject = ((Map<String, Object>) candidateMap).get("content");
+        if (!(contentObject instanceof Map<?, ?> contentMap)) {
+            return "";
+        }
+
+        Object partsObject = ((Map<String, Object>) contentMap).get("parts");
+        if (!(partsObject instanceof List<?> parts) || parts.isEmpty()) {
+            return "";
+        }
+
+        StringJoiner text = new StringJoiner("\n");
+        for (Object part : parts) {
+            if (part instanceof Map<?, ?> partMap) {
+                String partText = stringValue(((Map<String, Object>) partMap).get("text")).trim();
+                if (!partText.isBlank()) {
+                    text.add(partText);
+                }
+            }
+        }
+        return text.toString().trim();
+    }
+
+    private String unwrapJsonPayload(String rawText) {
+        String cleaned = rawText == null ? "" : rawText.trim();
+        if (cleaned.isBlank()) {
+            return "";
+        }
+
+        if (cleaned.startsWith("```")) {
+            int firstNewline = cleaned.indexOf('\n');
+            if (firstNewline >= 0) {
+                cleaned = cleaned.substring(firstNewline + 1).trim();
+            }
+            if (cleaned.endsWith("```")) {
+                cleaned = cleaned.substring(0, cleaned.length() - 3).trim();
+            }
+        }
+
+        int start = cleaned.indexOf('{');
+        int end = cleaned.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            return cleaned.substring(start, end + 1);
+        }
+        return cleaned;
+    }
+
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value);
     }
@@ -519,15 +599,18 @@ public class GeminiRoomCopyService {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private List<String> parseAmenities(Object value) {
         if (!(value instanceof List<?> list)) {
             return List.of();
         }
-        return list.stream()
-                .map(String::valueOf)
-                .map(String::trim)
-                .filter(item -> !item.isBlank())
-                .toList();
+
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (Object item : list) {
+            String amenity = String.valueOf(item).trim();
+            if (!amenity.isBlank() && ALLOWED_AMENITIES.contains(amenity)) {
+                normalized.add(amenity);
+            }
+        }
+        return new ArrayList<>(normalized);
     }
 }
