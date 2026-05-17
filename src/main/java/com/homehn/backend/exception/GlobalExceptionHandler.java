@@ -2,6 +2,8 @@ package com.homehn.backend.exception;
 
 import com.homehn.backend.dto.response.ApiResponse;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,8 +20,11 @@ import java.util.HashMap;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(AppException.class)
     public ResponseEntity<ApiResponse<?>> handleApp(AppException ex) {
+        log.error("Handled AppException status={} message={}", ex.getStatus(), ex.getMessage(), ex);
         return ResponseEntity.status(ex.getStatus()).body(ApiResponse.error(ex.getMessage()));
     }
 
@@ -69,6 +74,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<?>> handleGeneral(Exception ex) {
+        log.error("Unhandled exception", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error("Đã có lỗi xảy ra. Vui lòng thử lại sau"));
     }
