@@ -64,7 +64,7 @@ public class GeminiRoomCopyService {
     public GenerateRoomDescriptionResponse generateDescription(GenerateRoomDescriptionRequest request) {
         ensureEnabled();
         try {
-            String text = requestJson(buildGeneratePrompt(request));
+            String text = requestJson(buildGeneratePrompt(request), "generate-description");
             Map<String, Object> output = parseJsonObject(text, "generate-description");
             return new GenerateRoomDescriptionResponse(
                     stringValue(output.get("suggestedTitle")),
@@ -75,7 +75,10 @@ public class GeminiRoomCopyService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AppException("Yêu cầu tới Gemini bị gián đoạn.", 502);
+        } catch (AppException e) {
+            throw e;
         } catch (RuntimeException e) {
+            log.error("Gemini generate-description runtime error", e);
             throw new AppException("Không phân tích được phản hồi từ Gemini.", 502);
         }
     }
@@ -88,7 +91,7 @@ public class GeminiRoomCopyService {
         }
 
         try {
-            String text = requestJson(buildExtractPrompt(rawDescription));
+            String text = requestJson(buildExtractPrompt(rawDescription), "extract-room-form");
             Map<String, Object> output = parseJsonObject(text, "extract-room-form");
             return new ExtractRoomFormResponse(
                     nullableString(output.get("title")),
@@ -114,7 +117,10 @@ public class GeminiRoomCopyService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AppException("Yêu cầu tới Gemini bị gián đoạn.", 502);
+        } catch (AppException e) {
+            throw e;
         } catch (RuntimeException e) {
+            log.error("Gemini extract-room-form runtime error", e);
             throw new AppException("Không phân tích được thông tin phòng từ mô tả.", 502);
         }
     }
@@ -127,7 +133,7 @@ public class GeminiRoomCopyService {
         }
 
         try {
-            String text = requestJson(buildSearchPrompt(query));
+            String text = requestJson(buildSearchPrompt(query), "parse-search");
             Map<String, Object> output = parseJsonObject(text, "parse-search");
             return new AiSearchResponse(
                     nullableString(output.get("keyword")),
@@ -147,7 +153,10 @@ public class GeminiRoomCopyService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AppException("Yêu cầu tới Gemini bị gián đoạn.", 502);
+        } catch (AppException e) {
+            throw e;
         } catch (RuntimeException e) {
+            log.error("Gemini parse-search runtime error", e);
             throw new AppException("Không phân tích được nhu cầu tìm phòng.", 502);
         }
     }
@@ -160,7 +169,7 @@ public class GeminiRoomCopyService {
         }
 
         try {
-            String text = requestJson(buildChatPrompt(room, question));
+            String text = requestJson(buildChatPrompt(room, question), "chat-room");
             Map<String, Object> output = parseJsonObject(text, "chat-room");
             return new ChatAssistantResponse(
                     nullableString(output.get("answer")),
@@ -173,7 +182,10 @@ public class GeminiRoomCopyService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AppException("Yêu cầu tới Gemini bị gián đoạn.", 502);
+        } catch (AppException e) {
+            throw e;
         } catch (RuntimeException e) {
+            log.error("Gemini room-chat runtime error", e);
             throw new AppException("Không thể tạo tư vấn AI cho phòng này.", 502);
         }
     }
@@ -186,7 +198,7 @@ public class GeminiRoomCopyService {
         }
 
         try {
-            String text = requestJson(buildGeneralAssistantPrompt(question));
+            String text = requestJson(buildGeneralAssistantPrompt(question), "chat-general");
             Map<String, Object> output = parseJsonObject(text, "chat-general");
             return new ChatAssistantResponse(
                     nullableString(output.get("answer")),
@@ -199,7 +211,10 @@ public class GeminiRoomCopyService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AppException("Yêu cầu tới Gemini bị gián đoạn.", 502);
+        } catch (AppException e) {
+            throw e;
         } catch (RuntimeException e) {
+            log.error("Gemini general-chat runtime error", e);
             throw new AppException("Không thể tạo phản hồi từ trợ lý AI.", 502);
         }
     }
@@ -210,7 +225,7 @@ public class GeminiRoomCopyService {
         }
     }
 
-    private String requestJson(String prompt) throws IOException, InterruptedException {
+    private String requestJson(String prompt, String useCase) throws IOException, InterruptedException {
         String endpoint = properties.getBaseUrl()
                 + "/models/" + urlEncode(properties.getModel())
                 + ":generateContent?key=" + urlEncode(properties.getApiKey());
@@ -245,19 +260,31 @@ public class GeminiRoomCopyService {
                 httpRequest,
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
         );
+
         if (response.statusCode() >= 400) {
+            log.error("Gemini {} HTTP error status={} body={}", useCase, response.statusCode(), abbreviate(response.body()));
             throw new AppException("Gemini không phản hồi hợp lệ: " + response.body(), 502);
         }
 
-        Map<String, Object> root = JsonParserFactory.getJsonParser().parseMap(response.body());
+        Map<String, Object> root;
+        try {
+            root = JsonParserFactory.getJsonParser().parseMap(response.body());
+        } catch (RuntimeException ex) {
+            log.error("Gemini {} root payload is not valid JSON: {}", useCase, abbreviate(response.body()), ex);
+            throw new AppException("Gemini trả về payload không hợp lệ.", 502);
+        }
+
         String text = extractCandidateText(root);
         if (text.isBlank()) {
             String blockedReason = nestedString(root, "promptFeedback", "blockReason");
             if (!blockedReason.isBlank()) {
+                log.error("Gemini {} blocked request reason={}", useCase, blockedReason);
                 throw new AppException("Gemini từ chối yêu cầu: " + blockedReason, 502);
             }
+            log.error("Gemini {} returned empty candidate text body={}", useCase, abbreviate(response.body()));
             throw new AppException("Gemini không trả về nội dung hợp lệ.", 502);
         }
+
         return unwrapJsonPayload(text);
     }
 
@@ -266,7 +293,7 @@ public class GeminiRoomCopyService {
             return JsonParserFactory.getJsonParser().parseMap(text);
         } catch (RuntimeException ex) {
             log.error("Gemini {} returned invalid JSON payload: {}", useCase, abbreviate(text), ex);
-            throw new AppException("Gemini tráº£ vá» JSON khÃ´ng há»£p lá»‡.", 502);
+            throw new AppException("Gemini trả về JSON không hợp lệ.", 502);
         }
     }
 
@@ -275,10 +302,7 @@ public class GeminiRoomCopyService {
             return "";
         }
         String normalized = value.replace('\r', ' ').replace('\n', ' ').trim();
-        if (normalized.length() <= 1000) {
-            return normalized;
-        }
-        return normalized.substring(0, 1000) + "...";
+        return normalized.length() <= 1000 ? normalized : normalized.substring(0, 1000) + "...";
     }
 
     private String buildGeneratePrompt(GenerateRoomDescriptionRequest request) {
