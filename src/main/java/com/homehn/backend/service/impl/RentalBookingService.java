@@ -166,6 +166,34 @@ public class RentalBookingService {
         return RentalBookingResponse.from(booking);
     }
 
+    public RentalBookingResponse refreshPaymentLink(Long id, HttpServletRequest request, Long seekerId) {
+        RentalBookingEntity booking = bookingRepo.findById(id)
+                .orElseThrow(() -> new AppException("Không tìm thấy đơn thuê phòng", 404));
+
+        if (!booking.getSeeker().getId().equals(seekerId)) {
+            throw new AppException("Bạn không có quyền thanh toán đơn này", 403);
+        }
+        if (booking.getStatus() != RentalBookingEntity.Status.PENDING_PAYMENT
+                && booking.getStatus() != RentalBookingEntity.Status.PAYMENT_FAILED) {
+            throw new AppException("Đơn thuê này không thể tạo lại link thanh toán");
+        }
+
+        VnpayPaymentService.PaymentCreationResult payment = vnpayPaymentService.createDepositPayment(booking, request);
+        booking.setStatus(RentalBookingEntity.Status.PENDING_PAYMENT);
+        booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.PENDING);
+        booking.setPaymentOrderId(payment.getOrderId());
+        booking.setPaymentRequestId(payment.getRequestId());
+        booking.setPaymentPayUrl(payment.getPayUrl());
+        booking.setPaymentDeeplink(null);
+        booking.setPaymentQrCodeUrl(null);
+        booking.setPaymentTransId(null);
+        booking.setPaymentMessage(payment.getMessage());
+        booking.setPaymentResultCode(payment.getResultCode());
+        bookingRepo.save(booking);
+
+        return RentalBookingResponse.from(booking);
+    }
+
     public RentalBookingResponse landlordDecision(
             Long id,
             UpdateRentalBookingStatusRequest req,

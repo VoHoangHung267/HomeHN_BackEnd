@@ -66,7 +66,7 @@ public class VnpayPaymentService {
                 .requestId(txnRef)
                 .orderId(txnRef)
                 .payUrl(payUrl)
-                .message("Da tao link thanh toan VNPAY")
+                .message("Đã tạo link thanh toán VNPAY")
                 .resultCode(0)
                 .build();
     }
@@ -76,7 +76,7 @@ public class VnpayPaymentService {
 
         String receivedHash = input.get("vnp_SecureHash");
         if (isBlank(receivedHash)) {
-            return CallbackVerificationResult.invalid("Thieu chu ky VNPAY");
+            return CallbackVerificationResult.invalid("Thiếu chữ ký VNPAY");
         }
 
         Map<String, String> params = new TreeMap<>();
@@ -92,7 +92,7 @@ public class VnpayPaymentService {
 
         String expectedHash = hmacSha512(buildQuery(params), vnpayProperties.getHashSecret());
         if (!expectedHash.equalsIgnoreCase(receivedHash)) {
-            return CallbackVerificationResult.invalid("Sai chu ky VNPAY");
+            return CallbackVerificationResult.invalid("Sai chữ ký VNPAY");
         }
 
         String txnRef = params.get("vnp_TxnRef");
@@ -109,7 +109,7 @@ public class VnpayPaymentService {
                 .transactionStatus(transactionStatus)
                 .transactionNo(parseLong(params.get("vnp_TransactionNo"), -1L))
                 .bankCode(params.get("vnp_BankCode"))
-                .message(success ? "Thanh toan thanh cong qua VNPAY" : "Thanh toan VNPAY khong thanh cong")
+                .message(success ? "Thanh toán thành công qua VNPAY" : "Thanh toán VNPAY không thành công")
                 .success(success)
                 .build();
     }
@@ -138,7 +138,7 @@ public class VnpayPaymentService {
         if (!vnpayProperties.isEnabled()
                 || isBlank(vnpayProperties.getTmnCode())
                 || isBlank(vnpayProperties.getHashSecret())) {
-            throw new AppException("VNPAY sandbox chua duoc cau hinh. Vui long them vnp_TmnCode va vnp_HashSecret.");
+            throw new AppException("VNPAY sandbox chưa được cấu hình. Vui lòng thêm vnp_TmnCode và vnp_HashSecret.");
         }
     }
 
@@ -147,7 +147,7 @@ public class VnpayPaymentService {
     }
 
     private String buildOrderInfo(RentalBookingEntity booking) {
-        return "Dat coc phong " + booking.getContractCode();
+        return "Dặt cọc phòng " + booking.getContractCode();
     }
 
     private long toVnpayAmount(BigDecimal amount) {
@@ -197,7 +197,7 @@ public class VnpayPaymentService {
             }
             return sb.toString();
         } catch (Exception ex) {
-            throw new AppException("Khong tao duoc chu ky VNPAY: " + ex.getMessage());
+            throw new AppException("Không tạo được chữ ký VNPAY: " + ex.getMessage());
         }
     }
 

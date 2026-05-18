@@ -85,6 +85,19 @@ public class RentalBookingController {
         ));
     }
 
+    @PostMapping("/{id}/vnpay/refresh")
+    @PreAuthorize("hasRole('SEEKER')")
+    public ResponseEntity<ApiResponse<RentalBookingResponse>> refreshPaymentLink(
+            @PathVariable Long id,
+            HttpServletRequest request,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Đã tạo lại link thanh toán VNPAY",
+                rentalBookingService.refreshPaymentLink(id, request, principal.getId())
+        ));
+    }
+
     @PatchMapping("/{id}/landlord-status")
     @PreAuthorize("hasAnyRole('LANDLORD','ADMIN')")
     public ResponseEntity<ApiResponse<RentalBookingResponse>> landlordDecision(
