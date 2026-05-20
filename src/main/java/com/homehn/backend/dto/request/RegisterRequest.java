@@ -31,6 +31,10 @@ public class RegisterRequest {
     @Pattern(regexp = "^0[0-9]{9}$", message = "Số điện thoại không hợp lệ")
     private String phone;
 
+    @NotBlank(message = "Mã xác thực không được để trống")
+    @Pattern(regexp = "^\\d{6}$", message = "Mã xác thực không hợp lệ")
+    private String verificationCode;
+
     private UserEntity.Role role = UserEntity.Role.SEEKER;
 
     public UserEntity.Role getRole() {

@@ -1,12 +1,14 @@
 package com.homehn.backend.controller;
 
-import com.homehn.backend.dto.request.LoginRequest;
 import com.homehn.backend.dto.request.ForgotPasswordRequest;
+import com.homehn.backend.dto.request.LoginRequest;
 import com.homehn.backend.dto.request.RefreshTokenRequest;
 import com.homehn.backend.dto.request.RegisterRequest;
 import com.homehn.backend.dto.request.ResetPasswordRequest;
+import com.homehn.backend.dto.request.SendVerificationCodeRequest;
 import com.homehn.backend.dto.response.ApiResponse;
 import com.homehn.backend.dto.response.AuthResponse;
+import com.homehn.backend.dto.response.EmailAvailabilityResponse;
 import com.homehn.backend.dto.response.UserResponse;
 import com.homehn.backend.security.UserPrincipal;
 import com.homehn.backend.service.impl.AuthService;
@@ -26,6 +28,17 @@ class AuthController {
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest req) {
         return ResponseEntity.ok(ApiResponse.ok("Đăng ký thành công", authService.register(req)));
+    }
+
+    @GetMapping("/check-email")
+    public ResponseEntity<ApiResponse<EmailAvailabilityResponse>> checkEmail(@RequestParam String email) {
+        return ResponseEntity.ok(ApiResponse.ok(authService.checkEmailAvailability(email)));
+    }
+
+    @PostMapping("/send-verification-code")
+    public ResponseEntity<ApiResponse<Void>> sendVerificationCode(@Valid @RequestBody SendVerificationCodeRequest req) {
+        authService.sendRegistrationVerificationCode(req.getEmail());
+        return ResponseEntity.ok(ApiResponse.ok("Đã gửi mã xác thực đến email của bạn", null));
     }
 
     @PostMapping("/login")

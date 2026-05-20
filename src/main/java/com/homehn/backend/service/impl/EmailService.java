@@ -37,4 +37,23 @@ public class EmailService {
             throw new AppException("Không thể gửi email đặt lại mật khẩu: " + e.getMessage());
         }
     }
+
+    public void sendRegistrationVerificationCode(String to, String code) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(from);
+            message.setTo(to);
+            message.setSubject("Mã xác thực đăng ký HomeHN");
+            message.setText("""
+                    Xin chào,
+
+                    Mã xác thực đăng ký tài khoản HomeHN của bạn là: %s
+
+                    Mã có hiệu lực trong 10 phút. Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email.
+                    """.formatted(code));
+            mailSender.send(message);
+        } catch (MailException e) {
+            throw new AppException("Không thể gửi mã xác thực email: " + e.getMessage());
+        }
+    }
 }
