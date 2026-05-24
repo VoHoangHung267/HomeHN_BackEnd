@@ -24,7 +24,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AppException.class)
     public ResponseEntity<ApiResponse<?>> handleApp(AppException ex) {
-        log.error("Handled AppException status={} message={}", ex.getStatus(), ex.getMessage(), ex);
+        if (ex.getStatus() >= 500) {
+            log.error("Handled AppException status={} message={}", ex.getStatus(), ex.getMessage(), ex);
+        } else {
+            log.warn("Handled AppException status={} message={}", ex.getStatus(), ex.getMessage());
+        }
         return ResponseEntity.status(ex.getStatus()).body(ApiResponse.error(ex.getMessage()));
     }
 

@@ -66,7 +66,9 @@ class AuthController {
 
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(@AuthenticationPrincipal UserPrincipal user) {
-        authService.logout(user.getId());
+        if (user != null) {
+            authService.logout(user.getId());
+        }
         return ResponseEntity.ok(ApiResponse.ok("Đăng xuất thành công", null));
     }
 
