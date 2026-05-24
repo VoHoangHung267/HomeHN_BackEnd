@@ -59,7 +59,7 @@ public class AuthService {
 
         RegistrationVerificationCodeEntity verification = registrationCodeRepo
                 .findTopByEmailIgnoreCaseOrderByCreatedAtDesc(normalizedEmail)
-                .orElseThrow(() -> new AppException("Vui long yeu cau ma xac thuc email truoc"));
+                .orElseThrow(() -> new AppException("Vui lòng yêu cầu mã xác thực email trước"));
 
         if (verification.isUsed()) {
             throw new AppException("Mã xác thực này đã được sử dụng");
@@ -146,7 +146,7 @@ public class AuthService {
     public void forgotPassword(String email) {
         String normalizedEmail = normalizeEmail(email);
         UserEntity user = userRepo.findByEmailIgnoreCase(normalizedEmail)
-                .orElseThrow(() -> new AppException("Email khong ton tai trong he thong", 404));
+                .orElseThrow(() -> new AppException("Email không tồn tại trong hệ thống", 404));
 
         passwordResetTokenRepo.deleteByUserId(user.getId());
         String token = UUID.randomUUID().toString();
