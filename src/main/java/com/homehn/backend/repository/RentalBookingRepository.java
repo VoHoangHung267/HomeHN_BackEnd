@@ -14,6 +14,7 @@ public interface RentalBookingRepository extends JpaRepository<RentalBookingEnti
     long countBySeeker_Id(Long seekerId);
     long countByLandlord_Id(Long landlordId);
     Optional<RentalBookingEntity> findByPaymentOrderId(String paymentOrderId);
+    List<RentalBookingEntity> findByRoom_IdAndStatusIn(Long roomId, Collection<RentalBookingEntity.Status> statuses);
     boolean existsByRoom_IdAndStatusIn(Long roomId, Collection<RentalBookingEntity.Status> statuses);
     boolean existsByRoom_IdAndSeeker_IdAndStatusIn(
             Long roomId,

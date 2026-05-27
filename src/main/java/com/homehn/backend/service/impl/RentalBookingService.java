@@ -67,6 +67,7 @@ public class RentalBookingService {
                 RentalBookingEntity.Status.DEPOSIT_PAID,
                 RentalBookingEntity.Status.CONFIRMED
         );
+        expirePendingBookingsForRoom(roomId, blockingStatuses);
         if (bookingRepo.existsByRoom_IdAndStatusIn(roomId, blockingStatuses)) {
             throw new AppException("Phòng này đang có đơn thuê đang xử lý hoặc đã được chốt");
         }
@@ -392,6 +393,10 @@ public class RentalBookingService {
 
         markBookingPaymentExpired(booking);
         return bookingRepo.save(booking);
+    }
+
+    private void expirePendingBookingsForRoom(Long roomId, List<RentalBookingEntity.Status> statuses) {
+        bookingRepo.findByRoom_IdAndStatusIn(roomId, statuses).forEach(this::expirePendingPaymentIfNeeded);
     }
 
     private boolean isAwaitingPayment(RentalBookingEntity booking) {
