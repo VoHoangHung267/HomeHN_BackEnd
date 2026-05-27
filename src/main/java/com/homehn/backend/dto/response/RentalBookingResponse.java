@@ -4,8 +4,12 @@ import com.homehn.backend.entity.RentalBookingEntity;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Getter
 @Setter
@@ -13,6 +17,9 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class RentalBookingResponse {
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+    private static final Pattern TXN_REF_TIMESTAMP_PATTERN = Pattern.compile("(\\d{13})$");
+
     private Long id;
     private Long roomId;
     private String roomTitle;
@@ -90,8 +97,33 @@ public class RentalBookingResponse {
                 .paymentMessage(booking.getPaymentMessage())
                 .depositPaidAt(booking.getDepositPaidAt())
                 .confirmedAt(booking.getConfirmedAt())
-                .createdAt(booking.getCreatedAt())
+                .createdAt(normalizeCreatedAt(booking))
                 .updatedAt(booking.getUpdatedAt())
                 .build();
+    }
+
+    private static LocalDateTime normalizeCreatedAt(RentalBookingEntity booking) {
+        LocalDateTime createdAt = booking.getCreatedAt();
+        if (createdAt == null || booking.getPaymentOrderId() == null) {
+            return createdAt;
+        }
+
+        Matcher matcher = TXN_REF_TIMESTAMP_PATTERN.matcher(booking.getPaymentOrderId());
+        if (!matcher.find()) {
+            return createdAt;
+        }
+
+        try {
+            long createdMillis = Long.parseLong(matcher.group(1));
+            LocalDateTime derivedCreatedAt = LocalDateTime.ofInstant(
+                    java.time.Instant.ofEpochMilli(createdMillis),
+                    APP_ZONE
+            );
+
+            long diffHours = Math.abs(Duration.between(createdAt, derivedCreatedAt).toHours());
+            return diffHours == 7 ? derivedCreatedAt : createdAt;
+        } catch (NumberFormatException ex) {
+            return createdAt;
+        }
     }
 }

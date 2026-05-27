@@ -3,6 +3,7 @@ package com.homehn.backend.service.impl;
 import com.homehn.backend.dto.request.CreateRentalBookingRequest;
 import com.homehn.backend.dto.request.UpdateRentalBookingStatusRequest;
 import com.homehn.backend.dto.response.RentalBookingResponse;
+import com.homehn.backend.config.VnpayProperties;
 import com.homehn.backend.entity.RentalBookingEntity;
 import com.homehn.backend.entity.RoomEntity;
 import com.homehn.backend.entity.UserEntity;
@@ -17,22 +18,29 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class RentalBookingService {
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+    private static final Pattern TXN_REF_TIMESTAMP_PATTERN = Pattern.compile("(\\d{13})$");
 
     private final RentalBookingRepository bookingRepo;
     private final RoomRepository roomRepo;
     private final UserRepository userRepo;
     private final NotificationService notificationService;
     private final VnpayPaymentService vnpayPaymentService;
+    private final VnpayProperties vnpayProperties;
 
     public RentalBookingResponse create(
             Long roomId,
@@ -118,6 +126,7 @@ public class RentalBookingService {
     @Transactional(readOnly = true)
     public List<RentalBookingResponse> getMyBookings(Long seekerId) {
         return bookingRepo.findBySeeker_IdOrderByCreatedAtDesc(seekerId).stream()
+                .map(this::expirePendingPaymentIfNeeded)
                 .map(RentalBookingResponse::from)
                 .toList();
     }
@@ -128,6 +137,7 @@ public class RentalBookingService {
                 ? bookingRepo.findAllByOrderByCreatedAtDesc()
                 : bookingRepo.findByLandlord_IdOrderByCreatedAtDesc(userId);
         return source.stream()
+                .map(this::expirePendingPaymentIfNeeded)
                 .map(RentalBookingResponse::from)
                 .toList();
     }
@@ -137,6 +147,7 @@ public class RentalBookingService {
         RentalBookingEntity booking = bookingRepo.findById(id)
                 .orElseThrow(() -> new AppException("Không tìm thấy đơn thuê phòng", 404));
         ensureParticipant(booking, principal);
+        booking = expirePendingPaymentIfNeeded(booking);
         return RentalBookingResponse.from(booking);
     }
 
@@ -172,6 +183,13 @@ public class RentalBookingService {
 
         if (!booking.getSeeker().getId().equals(seekerId)) {
             throw new AppException("Bạn không có quyền thanh toán đơn này", 403);
+        }
+        booking = expirePendingPaymentIfNeeded(booking);
+        if (booking.getStatus() == RentalBookingEntity.Status.CANCELLED
+                && booking.getPaymentStatus() == RentalBookingEntity.PaymentStatus.CANCELLED
+                && booking.getPaymentResultCode() != null
+                && booking.getPaymentResultCode() == 15) {
+            throw new AppException("Link thanh toán VNPAY đã hết hạn. Đơn thuê đã bị huỷ, vui lòng tạo lại đơn thuê mới.");
         }
         if (booking.getStatus() != RentalBookingEntity.Status.PENDING_PAYMENT
                 && booking.getStatus() != RentalBookingEntity.Status.PAYMENT_FAILED) {
@@ -214,7 +232,7 @@ public class RentalBookingService {
                 throw new AppException("Chỉ có thể xác nhận khi người thuê đã thanh toán cọc");
             }
             booking.setStatus(RentalBookingEntity.Status.CONFIRMED);
-            booking.setConfirmedAt(LocalDateTime.now());
+            booking.setConfirmedAt(now());
             booking.getRoom().setStatus(RoomEntity.RoomStatus.RENTED);
             roomRepo.save(booking.getRoom());
         } else if (req.getStatus() == RentalBookingEntity.Status.REJECTED) {
@@ -333,7 +351,7 @@ public class RentalBookingService {
             booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.PAID);
             booking.setStatus(RentalBookingEntity.Status.DEPOSIT_PAID);
             if (booking.getDepositPaidAt() == null) {
-                booking.setDepositPaidAt(LocalDateTime.now());
+                booking.setDepositPaidAt(now());
             }
 
             if (notify) {
@@ -354,13 +372,88 @@ public class RentalBookingService {
                 );
             }
         } else {
-            booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.FAILED);
-            if (booking.getStatus() != RentalBookingEntity.Status.CONFIRMED) {
-                booking.setStatus(RentalBookingEntity.Status.PAYMENT_FAILED);
+            if (isExpiredOrCancelledPayment(verification)) {
+                markBookingPaymentExpired(booking);
+            } else {
+                booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.FAILED);
+                if (booking.getStatus() != RentalBookingEntity.Status.CONFIRMED) {
+                    booking.setStatus(RentalBookingEntity.Status.PAYMENT_FAILED);
+                }
             }
         }
 
         bookingRepo.save(booking);
+    }
+
+    private RentalBookingEntity expirePendingPaymentIfNeeded(RentalBookingEntity booking) {
+        if (!isAwaitingPayment(booking) || !hasPaymentLinkExpired(booking)) {
+            return booking;
+        }
+
+        markBookingPaymentExpired(booking);
+        return bookingRepo.save(booking);
+    }
+
+    private boolean isAwaitingPayment(RentalBookingEntity booking) {
+        return booking.getStatus() == RentalBookingEntity.Status.PENDING_PAYMENT
+                && booking.getPaymentStatus() == RentalBookingEntity.PaymentStatus.PENDING;
+    }
+
+    private boolean hasPaymentLinkExpired(RentalBookingEntity booking) {
+        LocalDateTime expiresAt = resolvePaymentExpiresAt(booking);
+        return expiresAt != null && !expiresAt.isAfter(now());
+    }
+
+    private LocalDateTime resolvePaymentExpiresAt(RentalBookingEntity booking) {
+        Long createdMillis = extractPaymentCreatedAtMillis(booking.getPaymentOrderId());
+        if (createdMillis != null) {
+            return LocalDateTime.ofInstant(Instant.ofEpochMilli(createdMillis), APP_ZONE)
+                    .plusMinutes(vnpayProperties.getExpireMinutes());
+        }
+
+        LocalDateTime fallbackBase = booking.getUpdatedAt() != null ? booking.getUpdatedAt() : booking.getCreatedAt();
+        if (fallbackBase == null) {
+            return null;
+        }
+        return fallbackBase.plusMinutes(vnpayProperties.getExpireMinutes());
+    }
+
+    private Long extractPaymentCreatedAtMillis(String paymentOrderId) {
+        if (paymentOrderId == null || paymentOrderId.isBlank()) {
+            return null;
+        }
+
+        Matcher matcher = TXN_REF_TIMESTAMP_PATTERN.matcher(paymentOrderId);
+        if (!matcher.find()) {
+            return null;
+        }
+
+        try {
+            return Long.parseLong(matcher.group(1));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private boolean isExpiredOrCancelledPayment(VnpayPaymentService.CallbackVerificationResult verification) {
+        return "15".equals(verification.getResponseCode())
+                || "15".equals(verification.getTransactionStatus())
+                || "24".equals(verification.getResponseCode())
+                || "24".equals(verification.getTransactionStatus());
+    }
+
+    private void markBookingPaymentExpired(RentalBookingEntity booking) {
+        if (booking.getStatus() == RentalBookingEntity.Status.CONFIRMED) {
+            return;
+        }
+
+        booking.setStatus(RentalBookingEntity.Status.CANCELLED);
+        booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.CANCELLED);
+        booking.setPaymentPayUrl(null);
+        booking.setPaymentDeeplink(null);
+        booking.setPaymentQrCodeUrl(null);
+        booking.setPaymentMessage("Link thanh toán VNPAY đã hết hạn. Đơn thuê đã bị huỷ, vui lòng tạo lại đơn thuê mới.");
+        booking.setPaymentResultCode(15);
     }
 
     private String blankToNull(String value) {
@@ -374,6 +467,10 @@ public class RentalBookingService {
         } catch (NumberFormatException ex) {
             return fallback;
         }
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.now(APP_ZONE);
     }
 
     private Map<String, String> ipnResponse(String code, String message) {

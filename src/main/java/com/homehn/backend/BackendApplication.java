@@ -16,12 +16,15 @@ import org.springframework.data.web.config.EnableSpringDataWebSupport;
 import org.springframework.security.core.userdetails.*;
 import org.springframework.stereotype.Service;
 
+import java.util.TimeZone;
+
 @EnableSpringDataWebSupport(pageSerializationMode = EnableSpringDataWebSupport.PageSerializationMode.VIA_DTO)
 @SpringBootApplication
 @EnableConfigurationProperties({VnpayProperties.class, GeminiProperties.class})
 public class BackendApplication {
 
 	public static void main(String[] args) {
+		TimeZone.setDefault(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
 		SpringApplication.run(BackendApplication.class, args);
 	}
 

@@ -17,8 +17,9 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -27,6 +28,7 @@ import java.util.TreeMap;
 public class VnpayPaymentService {
 
     private static final DateTimeFormatter VNPAY_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final VnpayProperties vnpayProperties;
 
@@ -41,7 +43,7 @@ public class VnpayPaymentService {
 
         String txnRef = buildTxnRef(booking);
         long amount = toVnpayAmount(booking.getDepositAmount());
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = ZonedDateTime.now(APP_ZONE).toLocalDateTime();
 
         Map<String, String> params = new TreeMap<>();
         params.put("vnp_Version", vnpayProperties.getVersion());
@@ -109,7 +111,7 @@ public class VnpayPaymentService {
                 .transactionStatus(transactionStatus)
                 .transactionNo(parseLong(params.get("vnp_TransactionNo"), -1L))
                 .bankCode(params.get("vnp_BankCode"))
-                .message(success ? "Thanh toán thành công qua VNPAY" : "Thanh toán VNPAY không thành công")
+                .message(resolvePaymentMessage(responseCode, transactionStatus, success))
                 .success(success)
                 .build();
     }
@@ -134,6 +136,10 @@ public class VnpayPaymentService {
         return vnpayProperties.isEnabled();
     }
 
+    public int getExpireMinutes() {
+        return vnpayProperties.getExpireMinutes();
+    }
+
     private void ensureConfigured() {
         if (!vnpayProperties.isEnabled()
                 || isBlank(vnpayProperties.getTmnCode())
@@ -147,7 +153,7 @@ public class VnpayPaymentService {
     }
 
     private String buildOrderInfo(RentalBookingEntity booking) {
-        return "Dặt cọc phòng " + booking.getContractCode();
+        return "Dat coc phong " + booking.getContractCode();
     }
 
     private long toVnpayAmount(BigDecimal amount) {
@@ -214,6 +220,19 @@ public class VnpayPaymentService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String resolvePaymentMessage(String responseCode, String transactionStatus, boolean success) {
+        if (success) {
+            return "Thanh toán thành công qua VNPAY";
+        }
+
+        String code = !isBlank(responseCode) ? responseCode : transactionStatus;
+        return switch (code) {
+            case "15" -> "Giao dịch đã hết thời gian chờ thanh toán trên VNPAY";
+            case "24" -> "Giao dịch đã bị hủy trên VNPAY";
+            default -> "Thanh toán VNPAY không thành công";
+        };
     }
 
     @Getter
