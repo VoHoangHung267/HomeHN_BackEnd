@@ -6,6 +6,7 @@ import com.homehn.backend.dto.request.ConfirmCashDepositRequest;
 import com.homehn.backend.dto.request.CreateRentalBookingRequest;
 import com.homehn.backend.dto.request.RejectRenewalRequest;
 import com.homehn.backend.dto.request.RequestRenewalRequest;
+import com.homehn.backend.dto.request.TerminateContractEarlyRequest;
 import com.homehn.backend.dto.request.UpdateBookingContractDraftRequest;
 import com.homehn.backend.dto.request.UpdateRentalBookingStatusRequest;
 import com.homehn.backend.dto.response.RentalBookingResponse;
@@ -46,7 +47,8 @@ public class RentalBookingService {
     private static final Set<RentalBookingEntity.Status> ACTIVE_CONTRACT_STATUSES = Set.of(
             RentalBookingEntity.Status.ACTIVE,
             RentalBookingEntity.Status.EXPIRING_SOON,
-            RentalBookingEntity.Status.RENEWAL_PENDING
+            RentalBookingEntity.Status.RENEWAL_PENDING,
+            RentalBookingEntity.Status.EARLY_TERMINATION_PENDING
     );
 
     private final RentalBookingRepository bookingRepo;
@@ -384,6 +386,137 @@ public class RentalBookingService {
                 "CONTRACT_RENEWAL_REJECTED",
                 "Không gia hạn hợp đồng",
                 "Chủ trọ đã xác nhận không gia hạn hợp đồng thuê phòng \"" + booking.getRoom().getTitle() + "\".",
+                booking.getId()
+        );
+
+        return RentalBookingResponse.from(booking);
+    }
+
+    public RentalBookingResponse terminateContractEarly(
+            Long roomId,
+            TerminateContractEarlyRequest req,
+            Long actorId,
+            UserEntity.Role actorRole
+    ) {
+        contractLifecycleService.syncNow();
+
+        RoomEntity room = roomRepo.findById(roomId)
+                .orElseThrow(() -> new AppException("Không tìm thấy phòng", 404));
+
+        boolean isOwner = room.getLandlord().getId().equals(actorId);
+        if (!isOwner) {
+            throw new AppException("Bạn không có quyền kết thúc hợp đồng của phòng này", 403);
+        }
+
+        RentalBookingEntity booking = bookingRepo.findByRoom_IdAndStatusIn(roomId, ACTIVE_CONTRACT_STATUSES).stream()
+                .findFirst()
+                .orElseThrow(() -> new AppException("Phòng này hiện không có hợp đồng thuê đang hiệu lực", 400));
+        if (booking.getStatus() != RentalBookingEntity.Status.ACTIVE) {
+            throw new AppException("Chỉ có thể yêu cầu kết thúc sớm khi hợp đồng đang ở trạng thái hiệu lực");
+        }
+
+        String reason = blankToNull(req != null ? req.getNote() : null);
+        if (reason == null) {
+            throw new AppException("Vui lòng nhập lý do kết thúc hợp đồng sớm");
+        }
+        if (booking.getStatus() == RentalBookingEntity.Status.EARLY_TERMINATION_PENDING) {
+            throw new AppException("Yêu cầu kết thúc hợp đồng sớm đang chờ admin duyệt");
+        }
+
+        booking.setStatus(RentalBookingEntity.Status.EARLY_TERMINATION_PENDING);
+        booking.setLandlordNote(reason);
+        booking.setPaymentMessage("Chủ trọ đã gửi yêu cầu kết thúc hợp đồng sớm. Đang chờ admin duyệt.");
+
+        bookingRepo.save(booking);
+
+        userRepo.findByRole(UserEntity.Role.ADMIN).forEach(admin -> notificationService.notifyUser(
+                admin,
+                "BOOKING_UPDATED",
+                "Có yêu cầu kết thúc hợp đồng sớm",
+                "Chủ trọ đã gửi yêu cầu kết thúc sớm hợp đồng thuê phòng \"" + room.getTitle() + "\".",
+                booking.getId()
+        ));
+
+        notificationService.notifyUser(
+                booking.getSeeker(),
+                "BOOKING_UPDATED",
+                "Có yêu cầu kết thúc hợp đồng sớm",
+                "Chủ trọ đã gửi yêu cầu kết thúc sớm hợp đồng thuê phòng \"" + room.getTitle() + "\". Lý do: " + reason,
+                booking.getId()
+        );
+
+        return RentalBookingResponse.from(booking);
+    }
+
+    public RentalBookingResponse approveEarlyTermination(Long bookingId, String note, Long actorId, UserEntity.Role actorRole) {
+        RentalBookingEntity booking = bookingRepo.findById(bookingId)
+                .orElseThrow(() -> new AppException("Không tìm thấy hợp đồng thuê", 404));
+        if (actorRole != UserEntity.Role.ADMIN) {
+            throw new AppException("Chỉ admin mới có quyền duyệt kết thúc hợp đồng sớm", 403);
+        }
+        if (booking.getStatus() != RentalBookingEntity.Status.EARLY_TERMINATION_PENDING) {
+            throw new AppException("Hợp đồng này hiện không ở trạng thái chờ duyệt kết thúc sớm");
+        }
+
+        booking.setStatus(RentalBookingEntity.Status.COMPLETED);
+        booking.setPaymentMessage("Admin đã duyệt kết thúc hợp đồng sớm. Phòng đang tạm ẩn, chủ trọ có thể hiện lại để nhận khách mới.");
+        if (blankToNull(note) != null) {
+            booking.setLandlordNote((booking.getLandlordNote() != null ? booking.getLandlordNote() + "\n\n" : "") + "Ghi chú admin: " + note.trim());
+        }
+
+        RoomEntity room = booking.getRoom();
+        room.setStatus(RoomEntity.RoomStatus.HIDDEN_REVIEW);
+        roomRepo.save(room);
+        bookingRepo.save(booking);
+
+        notificationService.notifyUser(
+                booking.getSeeker(),
+                "BOOKING_UPDATED",
+                "Yêu cầu kết thúc hợp đồng sớm đã được duyệt",
+                "Admin đã duyệt yêu cầu kết thúc sớm hợp đồng thuê phòng \"" + room.getTitle() + "\".",
+                booking.getId()
+        );
+        notificationService.notifyUser(
+                booking.getLandlord(),
+                "BOOKING_UPDATED",
+                "Yêu cầu kết thúc hợp đồng sớm đã được duyệt",
+                "Admin đã duyệt yêu cầu kết thúc sớm hợp đồng thuê phòng \"" + room.getTitle() + "\".",
+                booking.getId()
+        );
+
+        return RentalBookingResponse.from(booking);
+    }
+
+    public RentalBookingResponse rejectEarlyTermination(Long bookingId, String note, Long actorId, UserEntity.Role actorRole) {
+        RentalBookingEntity booking = bookingRepo.findById(bookingId)
+                .orElseThrow(() -> new AppException("Không tìm thấy hợp đồng thuê", 404));
+        if (actorRole != UserEntity.Role.ADMIN) {
+            throw new AppException("Chỉ admin mới có quyền từ chối kết thúc hợp đồng sớm", 403);
+        }
+        if (booking.getStatus() != RentalBookingEntity.Status.EARLY_TERMINATION_PENDING) {
+            throw new AppException("Hợp đồng này hiện không ở trạng thái chờ duyệt kết thúc sớm");
+        }
+
+        booking.setStatus(RentalBookingEntity.Status.ACTIVE);
+        booking.setPaymentMessage("Admin đã từ chối yêu cầu kết thúc hợp đồng sớm. Hợp đồng tiếp tục có hiệu lực.");
+        if (blankToNull(note) != null) {
+            booking.setLandlordNote((booking.getLandlordNote() != null ? booking.getLandlordNote() + "\n\n" : "") + "Ghi chú admin: " + note.trim());
+        }
+
+        bookingRepo.save(booking);
+
+        notificationService.notifyUser(
+                booking.getSeeker(),
+                "BOOKING_UPDATED",
+                "Yêu cầu kết thúc hợp đồng sớm đã bị từ chối",
+                "Admin đã từ chối yêu cầu kết thúc sớm hợp đồng thuê phòng \"" + booking.getRoom().getTitle() + "\".",
+                booking.getId()
+        );
+        notificationService.notifyUser(
+                booking.getLandlord(),
+                "BOOKING_UPDATED",
+                "Yêu cầu kết thúc hợp đồng sớm đã bị từ chối",
+                "Admin đã từ chối yêu cầu kết thúc sớm hợp đồng thuê phòng \"" + booking.getRoom().getTitle() + "\".",
                 booking.getId()
         );
 

@@ -7,6 +7,7 @@ import com.homehn.backend.dto.request.CreateRentalBookingRequest;
 import com.homehn.backend.dto.request.RejectRenewalRequest;
 import com.homehn.backend.dto.request.RequestRenewalRequest;
 import com.homehn.backend.dto.request.SaveContractTemplateRequest;
+import com.homehn.backend.dto.request.TerminateContractEarlyRequest;
 import com.homehn.backend.dto.request.UpdateBookingContractDraftRequest;
 import com.homehn.backend.dto.request.UpdateContractAdjustmentStatusRequest;
 import com.homehn.backend.dto.request.UpdateRentalBookingStatusRequest;
@@ -154,6 +155,45 @@ public class RentalBookingController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Đã xác nhận không gia hạn hợp đồng",
                 rentalBookingService.rejectRenewal(id, req, principal.getId(), principal.getRole())
+        ));
+    }
+
+    @PatchMapping("/rooms/{roomId}/terminate-early")
+    @PreAuthorize("hasAnyRole('LANDLORD','ADMIN')")
+    public ResponseEntity<ApiResponse<RentalBookingResponse>> terminateContractEarly(
+            @PathVariable Long roomId,
+            @RequestBody TerminateContractEarlyRequest req,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Đã gửi yêu cầu kết thúc hợp đồng sớm",
+                rentalBookingService.terminateContractEarly(roomId, req, principal.getId(), principal.getRole())
+        ));
+    }
+
+    @PatchMapping("/{id}/approve-early-termination")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<RentalBookingResponse>> approveEarlyTermination(
+            @PathVariable Long id,
+            @RequestBody TerminateContractEarlyRequest req,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Đã duyệt kết thúc hợp đồng sớm",
+                rentalBookingService.approveEarlyTermination(id, req != null ? req.getNote() : null, principal.getId(), principal.getRole())
+        ));
+    }
+
+    @PatchMapping("/{id}/reject-early-termination")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<RentalBookingResponse>> rejectEarlyTermination(
+            @PathVariable Long id,
+            @RequestBody TerminateContractEarlyRequest req,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Đã từ chối kết thúc hợp đồng sớm",
+                rentalBookingService.rejectEarlyTermination(id, req != null ? req.getNote() : null, principal.getId(), principal.getRole())
         ));
     }
 

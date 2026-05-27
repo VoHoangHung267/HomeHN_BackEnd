@@ -144,6 +144,7 @@ public class RentalBookingEntity {
         ACTIVE,
         EXPIRING_SOON,
         RENEWAL_PENDING,
+        EARLY_TERMINATION_PENDING,
         REJECTED,
         CANCELLED,
         PAYMENT_FAILED,

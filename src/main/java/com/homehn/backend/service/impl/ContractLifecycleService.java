@@ -21,7 +21,8 @@ public class ContractLifecycleService {
     private static final Set<RentalBookingEntity.Status> ACTIVE_CONTRACT_STATUSES = Set.of(
             RentalBookingEntity.Status.ACTIVE,
             RentalBookingEntity.Status.EXPIRING_SOON,
-            RentalBookingEntity.Status.RENEWAL_PENDING
+            RentalBookingEntity.Status.RENEWAL_PENDING,
+            RentalBookingEntity.Status.EARLY_TERMINATION_PENDING
     );
 
     private final RentalBookingRepository bookingRepo;
@@ -41,7 +42,8 @@ public class ContractLifecycleService {
                 RentalBookingEntity.Status.DEPOSIT_PAID,
                 RentalBookingEntity.Status.ACTIVE,
                 RentalBookingEntity.Status.EXPIRING_SOON,
-                RentalBookingEntity.Status.RENEWAL_PENDING
+                RentalBookingEntity.Status.RENEWAL_PENDING,
+                RentalBookingEntity.Status.EARLY_TERMINATION_PENDING
         ));
 
         for (RentalBookingEntity booking : bookings) {

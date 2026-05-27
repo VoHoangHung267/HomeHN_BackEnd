@@ -435,7 +435,8 @@ public class RoomService {
                         List.of(
                                 com.homehn.backend.entity.RentalBookingEntity.Status.ACTIVE,
                                 com.homehn.backend.entity.RentalBookingEntity.Status.EXPIRING_SOON,
-                                com.homehn.backend.entity.RentalBookingEntity.Status.RENEWAL_PENDING
+                                com.homehn.backend.entity.RentalBookingEntity.Status.RENEWAL_PENDING,
+                                com.homehn.backend.entity.RentalBookingEntity.Status.EARLY_TERMINATION_PENDING
                         )
                 ).stream()
                 .collect(Collectors.toMap(
