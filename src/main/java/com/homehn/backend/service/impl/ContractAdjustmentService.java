@@ -11,6 +11,7 @@ import com.homehn.backend.exception.AppException;
 import com.homehn.backend.repository.ContractAdjustmentRepository;
 import com.homehn.backend.repository.RentalBookingRepository;
 import com.homehn.backend.security.UserPrincipal;
+import com.homehn.backend.util.ContractTermsFormatter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,12 +44,20 @@ public class ContractAdjustmentService {
         RentalBookingEntity booking = findBooking(bookingId);
         ensureParticipant(booking, principal);
         ensureAdjustmentStage(booking);
-        if (adjustmentRepo.findFirstByBooking_IdAndStatusOrderByCreatedAtDesc(bookingId, ContractAdjustmentEntity.Status.PENDING).isPresent()) {
+
+        if (adjustmentRepo.findFirstByBooking_IdAndStatusOrderByCreatedAtDesc(
+                bookingId, ContractAdjustmentEntity.Status.PENDING
+        ).isPresent()) {
             throw new AppException("Đang có một đề xuất điều chỉnh hợp đồng chờ phản hồi");
         }
+
         validateProposal(req);
 
         ContractAdjustmentEntity.ProposerRole proposerRole = resolveRole(booking, principal);
+        if (booking.getStatus() == RentalBookingEntity.Status.REQUESTED
+                && proposerRole != ContractAdjustmentEntity.ProposerRole.SEEKER) {
+            throw new AppException("Ở bước xem trước, người thuê là bên gửi yêu cầu chỉnh sửa hợp đồng");
+        }
         ContractAdjustmentEntity adjustment = adjustmentRepo.save(ContractAdjustmentEntity.builder()
                 .booking(booking)
                 .room(booking.getRoom())
@@ -62,12 +71,14 @@ public class ContractAdjustmentService {
                 .proposedWaterPrice(req.getProposedWaterPrice())
                 .proposedOtherFees(req.getProposedOtherFees())
                 .proposedContractTerms(blankToNull(req.getProposedContractTerms()))
+                .proposedMoveInRules(blankToNull(req.getProposedMoveInRules()))
+                .proposedServiceNotes(blankToNull(req.getProposedServiceNotes()))
+                .proposedAdditionalTerms(blankToNull(req.getProposedAdditionalTerms()))
                 .proposalNote(blankToNull(req.getProposalNote()))
                 .status(ContractAdjustmentEntity.Status.PENDING)
                 .build());
 
-        booking.setStatus(RentalBookingEntity.Status.RENEWAL_PENDING);
-        booking.setPaymentMessage("Đang có đề xuất điều chỉnh hợp đồng chờ bên còn lại phản hồi.");
+        booking.setPaymentMessage("Đang có đề xuất điều chỉnh hợp đồng chờ bên còn lại phản hồi trước khi chuyển bước tiếp theo.");
         bookingRepo.save(booking);
 
         notifyOtherSide(booking, proposerRole, "CONTRACT_ADJUSTMENT_CREATED", "Có đề xuất điều chỉnh hợp đồng mới");
@@ -104,8 +115,7 @@ public class ContractAdjustmentService {
             applyApprovedProposal(booking, adjustment);
             notifyOtherSide(booking, actorRole, "CONTRACT_ADJUSTMENT_APPROVED", "Đề xuất điều chỉnh hợp đồng đã được chấp thuận");
         } else {
-            booking.setStatus(RentalBookingEntity.Status.EXPIRING_SOON);
-            booking.setPaymentMessage("Một đề xuất điều chỉnh hợp đồng đã bị từ chối. Hai bên có thể gửi đề xuất mới hoặc chuyển sang cho thuê khách mới.");
+            booking.setPaymentMessage("Một đề xuất điều chỉnh hợp đồng đã bị từ chối. Hai bên có thể tiếp tục chỉnh sửa và gửi lại bản khác.");
             bookingRepo.save(booking);
             notifyOtherSide(booking, actorRole, "CONTRACT_ADJUSTMENT_REJECTED", "Đề xuất điều chỉnh hợp đồng đã bị từ chối");
         }
@@ -115,6 +125,7 @@ public class ContractAdjustmentService {
 
     private void applyApprovedProposal(RentalBookingEntity booking, ContractAdjustmentEntity adjustment) {
         RoomEntity room = booking.getRoom();
+        RentalBookingEntity.Status previousStatus = booking.getStatus();
 
         if (adjustment.getExtensionMonths() != null) {
             booking.setLeaseMonths(booking.getLeaseMonths() + adjustment.getExtensionMonths());
@@ -138,10 +149,33 @@ public class ContractAdjustmentService {
         if (adjustment.getProposedContractTerms() != null) {
             booking.setContractTerms(adjustment.getProposedContractTerms());
         }
+        if (adjustment.getProposedMoveInRules() != null) {
+            booking.setContractMoveInRules(adjustment.getProposedMoveInRules());
+        }
+        if (adjustment.getProposedServiceNotes() != null) {
+            booking.setContractServiceNotes(adjustment.getProposedServiceNotes());
+        }
+        if (adjustment.getProposedAdditionalTerms() != null) {
+            booking.setContractAdditionalTerms(adjustment.getProposedAdditionalTerms());
+        }
+        booking.setContractTerms(ContractTermsFormatter.format(
+                booking.getContractMoveInRules(),
+                booking.getMonthlyRent(),
+                booking.getDepositAmount(),
+                room.getElectricPrice(),
+                room.getWaterPrice(),
+                room.getOtherFees(),
+                booking.getContractServiceNotes(),
+                booking.getContractAdditionalTerms()
+        ));
 
-        booking.setStatus(RentalBookingEntity.Status.ACTIVE);
-        booking.setPaymentMessage("Đề xuất điều chỉnh hợp đồng đã được chấp thuận. Hợp đồng tiếp tục có hiệu lực với điều khoản mới.");
-        room.setStatus(RoomEntity.RoomStatus.RENTED);
+        if (previousStatus == RentalBookingEntity.Status.EXPIRING_SOON
+                || previousStatus == RentalBookingEntity.Status.RENEWAL_PENDING) {
+            booking.setStatus(RentalBookingEntity.Status.ACTIVE);
+            room.setStatus(RoomEntity.RoomStatus.RENTED);
+        }
+
+        booking.setPaymentMessage("Đề xuất điều chỉnh hợp đồng đã được chấp thuận. Nội dung hợp đồng hiện tại đã được cập nhật.");
         bookingRepo.save(booking);
     }
 
@@ -185,9 +219,12 @@ public class ContractAdjustmentService {
     }
 
     private void ensureAdjustmentStage(RentalBookingEntity booking) {
-        if (booking.getStatus() != RentalBookingEntity.Status.EXPIRING_SOON
+        if (booking.getStatus() != RentalBookingEntity.Status.REQUESTED
+                && booking.getStatus() != RentalBookingEntity.Status.DEPOSIT_PAID
+                && booking.getStatus() != RentalBookingEntity.Status.ACTIVE
+                && booking.getStatus() != RentalBookingEntity.Status.EXPIRING_SOON
                 && booking.getStatus() != RentalBookingEntity.Status.RENEWAL_PENDING) {
-            throw new AppException("Chỉ có thể điều chỉnh hợp đồng khi đang trong giai đoạn sắp hết hạn hoặc gia hạn");
+            throw new AppException("Chỉ có thể điều chỉnh hợp đồng ở bước xem trước hoặc khi hợp đồng đang hiệu lực");
         }
     }
 
@@ -206,6 +243,9 @@ public class ContractAdjustmentService {
                 || req.getProposedWaterPrice() != null
                 || req.getProposedOtherFees() != null
                 || blankToNull(req.getProposedContractTerms()) != null
+                || blankToNull(req.getProposedMoveInRules()) != null
+                || blankToNull(req.getProposedServiceNotes()) != null
+                || blankToNull(req.getProposedAdditionalTerms()) != null
                 || blankToNull(req.getProposalNote()) != null;
         if (!hasContent) {
             throw new AppException("Vui lòng nhập ít nhất một điều khoản muốn điều chỉnh");

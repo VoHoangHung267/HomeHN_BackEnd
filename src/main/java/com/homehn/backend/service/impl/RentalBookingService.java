@@ -6,16 +6,19 @@ import com.homehn.backend.dto.request.ConfirmCashDepositRequest;
 import com.homehn.backend.dto.request.CreateRentalBookingRequest;
 import com.homehn.backend.dto.request.RejectRenewalRequest;
 import com.homehn.backend.dto.request.RequestRenewalRequest;
+import com.homehn.backend.dto.request.UpdateBookingContractDraftRequest;
 import com.homehn.backend.dto.request.UpdateRentalBookingStatusRequest;
 import com.homehn.backend.dto.response.RentalBookingResponse;
 import com.homehn.backend.entity.RentalBookingEntity;
 import com.homehn.backend.entity.RoomEntity;
 import com.homehn.backend.entity.UserEntity;
 import com.homehn.backend.exception.AppException;
+import com.homehn.backend.repository.ContractAdjustmentRepository;
 import com.homehn.backend.repository.RentalBookingRepository;
 import com.homehn.backend.repository.RoomRepository;
 import com.homehn.backend.repository.UserRepository;
 import com.homehn.backend.security.UserPrincipal;
+import com.homehn.backend.util.ContractTermsFormatter;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -47,6 +50,7 @@ public class RentalBookingService {
     );
 
     private final RentalBookingRepository bookingRepo;
+    private final ContractAdjustmentRepository adjustmentRepo;
     private final RoomRepository roomRepo;
     private final UserRepository userRepo;
     private final NotificationService notificationService;
@@ -115,7 +119,19 @@ public class RentalBookingService {
                 .monthlyRent(room.getPrice())
                 .depositAmount(defaultDepositAmount(room))
                 .contractCode(generateContractCode())
-                .contractTerms(buildContractTerms(room, req))
+                .contractMoveInRules("Trao đổi trực tiếp với chủ trọ để chốt giờ giấc ra vào.")
+                .contractServiceNotes("Điện, nước và dịch vụ áp dụng theo thông tin phòng tại thời điểm gửi yêu cầu.")
+                .contractAdditionalTerms("Người thuê xem trước hợp đồng, có thể yêu cầu chỉnh sửa trước khi chuyển sang đặt cọc.")
+                .contractTerms(buildContractTerms(
+                        "Trao đổi trực tiếp với chủ trọ để chốt giờ giấc ra vào.",
+                        room.getPrice(),
+                        defaultDepositAmount(room),
+                        room.getElectricPrice(),
+                        room.getWaterPrice(),
+                        room.getOtherFees(),
+                        "Điện, nước và dịch vụ áp dụng theo thông tin phòng tại thời điểm gửi yêu cầu.",
+                        "Người thuê xem trước hợp đồng, có thể yêu cầu chỉnh sửa trước khi chuyển sang đặt cọc."
+                ))
                 .note(blankToNull(req.getNote()))
                 .status(RentalBookingEntity.Status.REQUESTED)
                 .paymentStatus(RentalBookingEntity.PaymentStatus.PENDING)
@@ -234,6 +250,11 @@ public class RentalBookingService {
         if (req.getAction() == UpdateRentalBookingStatusRequest.Action.APPROVE) {
             if (booking.getStatus() != RentalBookingEntity.Status.REQUESTED) {
                 throw new AppException("Chỉ có thể chấp thuận yêu cầu thuê mới");
+            }
+            if (adjustmentRepo.findFirstByBooking_IdAndStatusOrderByCreatedAtDesc(
+                    booking.getId(), com.homehn.backend.entity.ContractAdjustmentEntity.Status.PENDING
+            ).isPresent()) {
+                throw new AppException("Vui lòng xử lý xong các điều chỉnh hợp đồng trước khi yêu cầu đặt cọc");
             }
             if ("VNPAY".equalsIgnoreCase(booking.getPaymentProvider())) {
                 applyFreshPaymentLink(booking, request);
@@ -363,6 +384,62 @@ public class RentalBookingService {
                 "CONTRACT_RENEWAL_REJECTED",
                 "Không gia hạn hợp đồng",
                 "Chủ trọ đã xác nhận không gia hạn hợp đồng thuê phòng \"" + booking.getRoom().getTitle() + "\".",
+                booking.getId()
+        );
+
+        return RentalBookingResponse.from(booking);
+    }
+
+    public RentalBookingResponse updateContractDraft(
+            Long id,
+            UpdateBookingContractDraftRequest req,
+            Long actorId,
+            UserEntity.Role actorRole
+    ) {
+        RentalBookingEntity booking = bookingRepo.findById(id)
+                .orElseThrow(() -> new AppException("Không tìm thấy đơn thuê phòng", 404));
+        ensureLandlordOrAdmin(booking, actorId, actorRole);
+
+        if (booking.getStatus() != RentalBookingEntity.Status.REQUESTED) {
+            throw new AppException("Chỉ có thể cập nhật hợp đồng ở bước xem trước khi yêu cầu đặt cọc");
+        }
+
+        if (req.getMonthlyRent() != null) {
+            booking.setMonthlyRent(req.getMonthlyRent());
+        }
+        if (req.getDepositAmount() != null) {
+            booking.setDepositAmount(req.getDepositAmount());
+        }
+        if (req.getElectricPrice() != null) {
+            booking.getRoom().setElectricPrice(req.getElectricPrice());
+        }
+        if (req.getWaterPrice() != null) {
+            booking.getRoom().setWaterPrice(req.getWaterPrice());
+        }
+        if (req.getOtherFees() != null) {
+            booking.getRoom().setOtherFees(req.getOtherFees());
+        }
+        booking.setContractMoveInRules(req.getMoveInRules().trim());
+        booking.setContractServiceNotes(req.getServiceNotes().trim());
+        booking.setContractAdditionalTerms(blankToNull(req.getAdditionalTerms()));
+        booking.setContractTerms(buildContractTerms(
+                booking.getContractMoveInRules(),
+                booking.getMonthlyRent(),
+                booking.getDepositAmount(),
+                booking.getRoom().getElectricPrice(),
+                booking.getRoom().getWaterPrice(),
+                booking.getRoom().getOtherFees(),
+                booking.getContractServiceNotes(),
+                booking.getContractAdditionalTerms()
+        ));
+        booking.setPaymentMessage("Chủ trọ đã cập nhật hợp đồng để người thuê xem và phản hồi trước khi chuyển sang bước đặt cọc.");
+        bookingRepo.save(booking);
+
+        notificationService.notifyUser(
+                booking.getSeeker(),
+                "BOOKING_UPDATED",
+                "Chủ trọ đã cập nhật hợp đồng",
+                "Chủ trọ vừa cập nhật nội dung hợp đồng thuê phòng \"" + booking.getRoom().getTitle() + "\".",
                 booking.getId()
         );
 
@@ -505,13 +582,26 @@ public class RentalBookingService {
         return "HD-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
     }
 
-    private String buildContractTerms(RoomEntity room, CreateRentalBookingRequest req) {
-        return "Hợp đồng nháp cho phòng \"" + room.getTitle() + "\". "
-                + "Tiền thuê hàng tháng: " + room.getPrice().stripTrailingZeros().toPlainString() + " VND. "
-                + "Tiền cọc dự kiến: " + defaultDepositAmount(room).stripTrailingZeros().toPlainString() + " VND. "
-                + "Thời hạn thuê: " + req.getLeaseMonths() + " tháng. "
-                + "Số người ở: " + req.getOccupantCount() + ". "
-                + "Ngày vào ở dự kiến: " + req.getMoveInDate() + ".";
+    private String buildContractTerms(
+            String moveInRules,
+            BigDecimal monthlyRent,
+            BigDecimal depositAmount,
+            BigDecimal electricPrice,
+            BigDecimal waterPrice,
+            BigDecimal otherFees,
+            String serviceNotes,
+            String additionalTerms
+    ) {
+        return ContractTermsFormatter.format(
+                moveInRules,
+                monthlyRent,
+                depositAmount,
+                electricPrice,
+                waterPrice,
+                otherFees,
+                serviceNotes,
+                additionalTerms
+        );
     }
 
     private void applyPaymentResult(

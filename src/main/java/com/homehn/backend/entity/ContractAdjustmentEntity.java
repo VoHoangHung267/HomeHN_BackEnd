@@ -60,6 +60,15 @@ public class ContractAdjustmentEntity {
     @Column(name = "proposed_contract_terms", columnDefinition = "TEXT")
     private String proposedContractTerms;
 
+    @Column(name = "proposed_move_in_rules", columnDefinition = "TEXT")
+    private String proposedMoveInRules;
+
+    @Column(name = "proposed_service_notes", columnDefinition = "TEXT")
+    private String proposedServiceNotes;
+
+    @Column(name = "proposed_additional_terms", columnDefinition = "TEXT")
+    private String proposedAdditionalTerms;
+
     @Column(name = "proposal_note", columnDefinition = "TEXT")
     private String proposalNote;
 

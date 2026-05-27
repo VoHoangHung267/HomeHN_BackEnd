@@ -21,5 +21,8 @@ public class CreateContractAdjustmentRequest {
     private BigDecimal proposedWaterPrice;
     private BigDecimal proposedOtherFees;
     private String proposedContractTerms;
+    private String proposedMoveInRules;
+    private String proposedServiceNotes;
+    private String proposedAdditionalTerms;
     private String proposalNote;
 }

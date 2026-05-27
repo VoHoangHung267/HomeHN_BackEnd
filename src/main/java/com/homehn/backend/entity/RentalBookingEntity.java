@@ -65,6 +65,15 @@ public class RentalBookingEntity {
     @Column(name = "contract_terms", columnDefinition = "TEXT")
     private String contractTerms;
 
+    @Column(name = "contract_move_in_rules", columnDefinition = "TEXT")
+    private String contractMoveInRules;
+
+    @Column(name = "contract_service_notes", columnDefinition = "TEXT")
+    private String contractServiceNotes;
+
+    @Column(name = "contract_additional_terms", columnDefinition = "TEXT")
+    private String contractAdditionalTerms;
+
     @Column(columnDefinition = "TEXT")
     private String note;
 

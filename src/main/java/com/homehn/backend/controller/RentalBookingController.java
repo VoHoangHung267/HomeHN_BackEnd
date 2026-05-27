@@ -6,13 +6,17 @@ import com.homehn.backend.dto.request.CreateContractAdjustmentRequest;
 import com.homehn.backend.dto.request.CreateRentalBookingRequest;
 import com.homehn.backend.dto.request.RejectRenewalRequest;
 import com.homehn.backend.dto.request.RequestRenewalRequest;
+import com.homehn.backend.dto.request.SaveContractTemplateRequest;
+import com.homehn.backend.dto.request.UpdateBookingContractDraftRequest;
 import com.homehn.backend.dto.request.UpdateContractAdjustmentStatusRequest;
 import com.homehn.backend.dto.request.UpdateRentalBookingStatusRequest;
 import com.homehn.backend.dto.response.ApiResponse;
 import com.homehn.backend.dto.response.ContractAdjustmentResponse;
+import com.homehn.backend.dto.response.ContractTemplateResponse;
 import com.homehn.backend.dto.response.RentalBookingResponse;
 import com.homehn.backend.security.UserPrincipal;
 import com.homehn.backend.service.impl.ContractAdjustmentService;
+import com.homehn.backend.service.impl.ContractTemplateService;
 import com.homehn.backend.service.impl.RentalBookingService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -34,6 +38,7 @@ public class RentalBookingController {
 
     private final RentalBookingService rentalBookingService;
     private final ContractAdjustmentService contractAdjustmentService;
+    private final ContractTemplateService contractTemplateService;
 
     @PostMapping("/rooms/{roomId}")
     @PreAuthorize("hasRole('SEEKER')")
@@ -152,6 +157,19 @@ public class RentalBookingController {
         ));
     }
 
+    @PatchMapping("/{id}/contract-draft")
+    @PreAuthorize("hasAnyRole('LANDLORD','ADMIN')")
+    public ResponseEntity<ApiResponse<RentalBookingResponse>> updateContractDraft(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateBookingContractDraftRequest req,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Đã cập nhật hợp đồng cho người thuê xem trước",
+                rentalBookingService.updateContractDraft(id, req, principal.getId(), principal.getRole())
+        ));
+    }
+
     @GetMapping("/{id}/adjustments")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<ContractAdjustmentResponse>>> adjustments(
@@ -184,6 +202,39 @@ public class RentalBookingController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Đã phản hồi đề xuất điều chỉnh hợp đồng",
                 contractAdjustmentService.updateStatus(adjustmentId, req, principal)
+        ));
+    }
+
+    @GetMapping("/contract-templates")
+    @PreAuthorize("hasAnyRole('LANDLORD','ADMIN')")
+    public ResponseEntity<ApiResponse<List<ContractTemplateResponse>>> myContractTemplates(
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(contractTemplateService.getMyTemplates(principal)));
+    }
+
+    @PostMapping("/contract-templates")
+    @PreAuthorize("hasAnyRole('LANDLORD','ADMIN')")
+    public ResponseEntity<ApiResponse<ContractTemplateResponse>> createContractTemplate(
+            @Valid @RequestBody SaveContractTemplateRequest req,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(
+                "Đã lưu mẫu hợp đồng",
+                contractTemplateService.create(req, principal)
+        ));
+    }
+
+    @PutMapping("/contract-templates/{templateId}")
+    @PreAuthorize("hasAnyRole('LANDLORD','ADMIN')")
+    public ResponseEntity<ApiResponse<ContractTemplateResponse>> updateContractTemplate(
+            @PathVariable Long templateId,
+            @Valid @RequestBody SaveContractTemplateRequest req,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Đã cập nhật mẫu hợp đồng",
+                contractTemplateService.update(templateId, req, principal)
         ));
     }
 

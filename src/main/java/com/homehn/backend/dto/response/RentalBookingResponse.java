@@ -44,6 +44,9 @@ public class RentalBookingResponse {
     private BigDecimal otherFees;
     private String contractCode;
     private String contractTerms;
+    private String contractMoveInRules;
+    private String contractServiceNotes;
+    private String contractAdditionalTerms;
     private String note;
     private String landlordNote;
     private RentalBookingEntity.Status status;
@@ -93,6 +96,9 @@ public class RentalBookingResponse {
                 .otherFees(booking.getRoom().getOtherFees())
                 .contractCode(booking.getContractCode())
                 .contractTerms(booking.getContractTerms())
+                .contractMoveInRules(booking.getContractMoveInRules())
+                .contractServiceNotes(booking.getContractServiceNotes())
+                .contractAdditionalTerms(booking.getContractAdditionalTerms())
                 .note(booking.getNote())
                 .landlordNote(booking.getLandlordNote())
                 .status(booking.getStatus())

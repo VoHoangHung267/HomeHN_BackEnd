@@ -26,6 +26,9 @@ public class ContractAdjustmentResponse {
     private BigDecimal proposedWaterPrice;
     private BigDecimal proposedOtherFees;
     private String proposedContractTerms;
+    private String proposedMoveInRules;
+    private String proposedServiceNotes;
+    private String proposedAdditionalTerms;
     private String proposalNote;
     private ContractAdjustmentEntity.Status status;
     private ContractAdjustmentEntity.ProposerRole responderRole;
@@ -46,6 +49,9 @@ public class ContractAdjustmentResponse {
                 .proposedWaterPrice(entity.getProposedWaterPrice())
                 .proposedOtherFees(entity.getProposedOtherFees())
                 .proposedContractTerms(entity.getProposedContractTerms())
+                .proposedMoveInRules(entity.getProposedMoveInRules())
+                .proposedServiceNotes(entity.getProposedServiceNotes())
+                .proposedAdditionalTerms(entity.getProposedAdditionalTerms())
                 .proposalNote(entity.getProposalNote())
                 .status(entity.getStatus())
                 .responderRole(entity.getResponderRole())
