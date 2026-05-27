@@ -41,6 +41,13 @@ public class ReviewService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<ReviewResponse> getAllReviews() {
+        return reviewRepo.findAllByOrderByCreatedAtDesc().stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
     public ReviewResponse createReview(Long roomId, ReviewRequest req, List<MultipartFile> files, Long reviewerId) {
         UserEntity reviewer = userRepo.findById(reviewerId).orElseThrow();
         RoomEntity room = roomRepo.findById(roomId)
@@ -220,6 +227,8 @@ public class ReviewService {
     private ReviewResponse toResponse(ReviewEntity review) {
         return ReviewResponse.builder()
                 .id(review.getId())
+                .roomId(review.getRoom().getId())
+                .roomTitle(review.getRoom().getTitle())
                 .reviewerId(review.getReviewer().getId())
                 .reviewerName(review.getReviewer().getFullName())
                 .reviewerAvatar(review.getReviewer().getAvatarUrl())

@@ -112,9 +112,6 @@ public class RentalBookingEntity {
     @Column(name = "deposit_paid_at")
     private LocalDateTime depositPaidAt;
 
-    @Column(name = "confirmed_at")
-    private LocalDateTime confirmedAt;
-
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -132,12 +129,16 @@ public class RentalBookingEntity {
     }
 
     public enum Status {
+        REQUESTED,
         PENDING_PAYMENT,
         DEPOSIT_PAID,
-        CONFIRMED,
+        ACTIVE,
+        EXPIRING_SOON,
+        RENEWAL_PENDING,
         REJECTED,
         CANCELLED,
-        PAYMENT_FAILED
+        PAYMENT_FAILED,
+        COMPLETED
     }
 
     public enum PaymentStatus {

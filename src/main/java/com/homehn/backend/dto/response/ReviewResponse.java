@@ -12,6 +12,8 @@ import java.util.List;
 @Builder
 public class ReviewResponse {
     private Long id;
+    private Long roomId;
+    private String roomTitle;
     private Long reviewerId;
     private String reviewerName, reviewerAvatar;
     private int rating;

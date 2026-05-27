@@ -6,6 +6,7 @@ import com.homehn.backend.entity.RoomImageEntity;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -47,6 +48,7 @@ public class RoomResponse {
     private Boolean favorited;
     private double avgRating;
     private int    reviewCount;
+    private LocalDate availableFrom;
 
     public static RoomResponse from(RoomEntity r) {
         return RoomResponse.builder()

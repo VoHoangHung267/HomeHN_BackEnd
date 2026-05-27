@@ -1,9 +1,13 @@
 package com.homehn.backend.service.impl;
 
+import com.homehn.backend.config.VnpayProperties;
+import com.homehn.backend.dto.request.ApproveRenewalRequest;
+import com.homehn.backend.dto.request.ConfirmCashDepositRequest;
 import com.homehn.backend.dto.request.CreateRentalBookingRequest;
+import com.homehn.backend.dto.request.RejectRenewalRequest;
+import com.homehn.backend.dto.request.RequestRenewalRequest;
 import com.homehn.backend.dto.request.UpdateRentalBookingStatusRequest;
 import com.homehn.backend.dto.response.RentalBookingResponse;
-import com.homehn.backend.config.VnpayProperties;
 import com.homehn.backend.entity.RentalBookingEntity;
 import com.homehn.backend.entity.RoomEntity;
 import com.homehn.backend.entity.UserEntity;
@@ -19,11 +23,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,6 +40,11 @@ import java.util.regex.Pattern;
 public class RentalBookingService {
     private static final ZoneId APP_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final Pattern TXN_REF_TIMESTAMP_PATTERN = Pattern.compile("(\\d{13})$");
+    private static final Set<RentalBookingEntity.Status> ACTIVE_CONTRACT_STATUSES = Set.of(
+            RentalBookingEntity.Status.ACTIVE,
+            RentalBookingEntity.Status.EXPIRING_SOON,
+            RentalBookingEntity.Status.RENEWAL_PENDING
+    );
 
     private final RentalBookingRepository bookingRepo;
     private final RoomRepository roomRepo;
@@ -41,6 +52,7 @@ public class RentalBookingService {
     private final NotificationService notificationService;
     private final VnpayPaymentService vnpayPaymentService;
     private final VnpayProperties vnpayProperties;
+    private final ContractLifecycleService contractLifecycleService;
 
     public RentalBookingResponse create(
             Long roomId,
@@ -48,13 +60,12 @@ public class RentalBookingService {
             HttpServletRequest request,
             Long seekerId
     ) {
+        contractLifecycleService.syncNow();
+
         UserEntity seeker = userRepo.findById(seekerId).orElseThrow();
         RoomEntity room = roomRepo.findById(roomId)
                 .orElseThrow(() -> new AppException("Phòng không tồn tại", 404));
 
-        if (room.getStatus() != RoomEntity.RoomStatus.ACTIVE) {
-            throw new AppException("Chỉ có thể gửi yêu cầu thuê với phòng đang hiển thị");
-        }
         if (room.getLandlord().getId().equals(seeker.getId())) {
             throw new AppException("Bạn không thể thuê phòng của chính mình");
         }
@@ -62,17 +73,32 @@ public class RentalBookingService {
             throw new AppException("Số người ở vượt quá giới hạn của phòng");
         }
 
+        LocalDate moveInDate = req.getMoveInDate();
+        if (room.getStatus() == RoomEntity.RoomStatus.ACTIVE) {
+            ensureNoActiveContract(roomId);
+        } else if (room.getStatus() == RoomEntity.RoomStatus.AVAILABLE_SOON) {
+            LocalDate availableFrom = resolveAvailableFrom(roomId);
+            if (availableFrom == null) {
+                throw new AppException("Phòng chưa sẵn sàng nhận yêu cầu thuê mới");
+            }
+            if (!moveInDate.isAfter(availableFrom.minusDays(1))) {
+                throw new AppException("Ngày vào ở phải từ " + availableFrom + " trở đi");
+            }
+        } else {
+            throw new AppException("Chỉ có thể gửi yêu cầu thuê với phòng đang hiển thị hoặc sắp trống");
+        }
+
         List<RentalBookingEntity.Status> blockingStatuses = List.of(
+                RentalBookingEntity.Status.REQUESTED,
                 RentalBookingEntity.Status.PENDING_PAYMENT,
-                RentalBookingEntity.Status.DEPOSIT_PAID,
-                RentalBookingEntity.Status.CONFIRMED
+                RentalBookingEntity.Status.DEPOSIT_PAID
         );
         expirePendingBookingsForRoom(roomId, blockingStatuses);
         if (bookingRepo.existsByRoom_IdAndStatusIn(roomId, blockingStatuses)) {
-            throw new AppException("Phòng này đang có đơn thuê đang xử lý hoặc đã được chốt");
+            throw new AppException("Phòng này đang có yêu cầu thuê khác đang xử lý hoặc đã đặt cọc");
         }
         if (bookingRepo.existsByRoom_IdAndSeeker_IdAndStatusIn(roomId, seeker.getId(), blockingStatuses)) {
-            throw new AppException("Bạn đã có một đơn thuê đang xử lý cho phòng này");
+            throw new AppException("Bạn đã có một yêu cầu thuê đang xử lý cho phòng này");
         }
 
         RentalBookingEntity booking = bookingRepo.save(RentalBookingEntity.builder()
@@ -83,7 +109,7 @@ public class RentalBookingService {
                 .tenantPhone(req.getTenantPhone().trim())
                 .tenantEmail(blankToNull(req.getTenantEmail()))
                 .tenantIdentityNumber(blankToNull(req.getTenantIdentityNumber()))
-                .moveInDate(req.getMoveInDate())
+                .moveInDate(moveInDate)
                 .leaseMonths(req.getLeaseMonths())
                 .occupantCount(req.getOccupantCount())
                 .monthlyRent(room.getPrice())
@@ -91,49 +117,33 @@ public class RentalBookingService {
                 .contractCode(generateContractCode())
                 .contractTerms(buildContractTerms(room, req))
                 .note(blankToNull(req.getNote()))
-                .status(RentalBookingEntity.Status.PENDING_PAYMENT)
+                .status(RentalBookingEntity.Status.REQUESTED)
                 .paymentStatus(RentalBookingEntity.PaymentStatus.PENDING)
-                .paymentProvider("VNPAY")
+                .paymentProvider(req.getPaymentMethod())
+                .paymentMessage("Đã tạo yêu cầu thuê phòng. Đang chờ chủ trọ xem xét hồ sơ.")
                 .build());
-
-        VnpayPaymentService.PaymentCreationResult payment;
-        try {
-            payment = vnpayPaymentService.createDepositPayment(booking, request);
-        } catch (AppException ex) {
-            bookingRepo.delete(booking);
-            throw ex;
-        }
-
-        booking.setPaymentOrderId(payment.getOrderId());
-        booking.setPaymentRequestId(payment.getRequestId());
-        booking.setPaymentPayUrl(payment.getPayUrl());
-        booking.setPaymentDeeplink(null);
-        booking.setPaymentQrCodeUrl(null);
-        booking.setPaymentMessage(payment.getMessage());
-        booking.setPaymentResultCode(payment.getResultCode());
-        bookingRepo.save(booking);
 
         notificationService.notifyUser(
                 room.getLandlord(),
                 "BOOKING_CREATED",
                 "Có yêu cầu thuê phòng mới",
-                seeker.getFullName() + " vừa gửi yêu cầu thuê phòng \"" + room.getTitle() + "\" và chờ thanh toán cọc.",
+                seeker.getFullName() + " vừa gửi yêu cầu thuê phòng \"" + room.getTitle() + "\".",
                 booking.getId()
         );
 
         return RentalBookingResponse.from(booking);
     }
 
-    @Transactional(readOnly = true)
     public List<RentalBookingResponse> getMyBookings(Long seekerId) {
+        contractLifecycleService.syncNow();
         return bookingRepo.findBySeeker_IdOrderByCreatedAtDesc(seekerId).stream()
                 .map(this::expirePendingPaymentIfNeeded)
                 .map(RentalBookingResponse::from)
                 .toList();
     }
 
-    @Transactional(readOnly = true)
     public List<RentalBookingResponse> getLandlordBookings(Long userId, UserEntity.Role role) {
+        contractLifecycleService.syncNow();
         List<RentalBookingEntity> source = role == UserEntity.Role.ADMIN
                 ? bookingRepo.findAllByOrderByCreatedAtDesc()
                 : bookingRepo.findByLandlord_IdOrderByCreatedAtDesc(userId);
@@ -143,8 +153,8 @@ public class RentalBookingService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
     public RentalBookingResponse getDetail(Long id, UserPrincipal principal) {
+        contractLifecycleService.syncNow();
         RentalBookingEntity booking = bookingRepo.findById(id)
                 .orElseThrow(() -> new AppException("Không tìm thấy đơn thuê phòng", 404));
         ensureParticipant(booking, principal);
@@ -158,12 +168,16 @@ public class RentalBookingService {
         if (!booking.getSeeker().getId().equals(seekerId)) {
             throw new AppException("Bạn không có quyền huỷ đơn này", 403);
         }
-        if (booking.getStatus() == RentalBookingEntity.Status.CONFIRMED) {
-            throw new AppException("Đơn thuê đã được xác nhận, không thể huỷ");
+        if (booking.getStatus() == RentalBookingEntity.Status.DEPOSIT_PAID
+                || ACTIVE_CONTRACT_STATUSES.contains(booking.getStatus())) {
+            throw new AppException("Đơn thuê đã bước sang giai đoạn hiệu lực hoặc đã đặt cọc, không thể huỷ");
         }
 
         booking.setStatus(RentalBookingEntity.Status.CANCELLED);
         booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.CANCELLED);
+        booking.setPaymentPayUrl(null);
+        booking.setPaymentDeeplink(null);
+        booking.setPaymentQrCodeUrl(null);
         booking.setPaymentMessage("Người thuê đã huỷ yêu cầu thuê phòng");
         bookingRepo.save(booking);
 
@@ -192,24 +206,16 @@ public class RentalBookingService {
                 && booking.getPaymentResultCode() == 15) {
             throw new AppException("Link thanh toán VNPAY đã hết hạn. Đơn thuê đã bị huỷ, vui lòng tạo lại đơn thuê mới.");
         }
+        if (!"VNPAY".equalsIgnoreCase(booking.getPaymentProvider())) {
+            throw new AppException("Đơn thuê này không sử dụng VNPAY");
+        }
         if (booking.getStatus() != RentalBookingEntity.Status.PENDING_PAYMENT
                 && booking.getStatus() != RentalBookingEntity.Status.PAYMENT_FAILED) {
             throw new AppException("Đơn thuê này không thể tạo lại link thanh toán");
         }
 
-        VnpayPaymentService.PaymentCreationResult payment = vnpayPaymentService.createDepositPayment(booking, request);
-        booking.setStatus(RentalBookingEntity.Status.PENDING_PAYMENT);
-        booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.PENDING);
-        booking.setPaymentOrderId(payment.getOrderId());
-        booking.setPaymentRequestId(payment.getRequestId());
-        booking.setPaymentPayUrl(payment.getPayUrl());
-        booking.setPaymentDeeplink(null);
-        booking.setPaymentQrCodeUrl(null);
-        booking.setPaymentTransId(null);
-        booking.setPaymentMessage(payment.getMessage());
-        booking.setPaymentResultCode(payment.getResultCode());
+        applyFreshPaymentLink(booking, request);
         bookingRepo.save(booking);
-
         return RentalBookingResponse.from(booking);
     }
 
@@ -217,45 +223,180 @@ public class RentalBookingService {
             Long id,
             UpdateRentalBookingStatusRequest req,
             Long actorId,
-            UserEntity.Role actorRole
+            UserEntity.Role actorRole,
+            HttpServletRequest request
     ) {
         RentalBookingEntity booking = bookingRepo.findById(id)
                 .orElseThrow(() -> new AppException("Không tìm thấy đơn thuê phòng", 404));
 
-        boolean isOwner = booking.getLandlord().getId().equals(actorId);
-        boolean isAdmin = actorRole == UserEntity.Role.ADMIN;
-        if (!isOwner && !isAdmin) {
-            throw new AppException("Bạn không có quyền xử lý đơn này", 403);
+        ensureLandlordOrAdmin(booking, actorId, actorRole);
+
+        if (req.getAction() == UpdateRentalBookingStatusRequest.Action.APPROVE) {
+            if (booking.getStatus() != RentalBookingEntity.Status.REQUESTED) {
+                throw new AppException("Chỉ có thể chấp thuận yêu cầu thuê mới");
+            }
+            if ("VNPAY".equalsIgnoreCase(booking.getPaymentProvider())) {
+                applyFreshPaymentLink(booking, request);
+                booking.setPaymentMessage("Chủ trọ đã chấp thuận yêu cầu thuê. Vui lòng đọc điều khoản và thanh toán cọc qua VNPAY để giữ phòng.");
+            } else {
+                booking.setStatus(RentalBookingEntity.Status.PENDING_PAYMENT);
+                booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.PENDING);
+                booking.setPaymentPayUrl(null);
+                booking.setPaymentMessage("Chủ trọ đã chấp thuận yêu cầu thuê. Người thuê sẽ đặt cọc tiền mặt/chuyển khoản trực tiếp và chủ trọ xác nhận trên hệ thống.");
+            }
+            booking.setLandlordNote(blankToNull(req.getNote()));
+            bookingRepo.save(booking);
+
+            notificationService.notifyUser(
+                    booking.getSeeker(),
+                    "BOOKING_UPDATED",
+                    "Yêu cầu thuê đã được chấp thuận",
+                    "Chủ trọ đã chấp thuận yêu cầu thuê phòng \"" + booking.getRoom().getTitle() + "\". Vui lòng xem điều khoản và thực hiện đặt cọc theo phương thức đã chọn.",
+                    booking.getId()
+            );
+            return RentalBookingResponse.from(booking);
         }
 
-        if (req.getStatus() == RentalBookingEntity.Status.CONFIRMED) {
-            if (booking.getStatus() != RentalBookingEntity.Status.DEPOSIT_PAID) {
-                throw new AppException("Chỉ có thể xác nhận khi người thuê đã thanh toán cọc");
-            }
-            booking.setStatus(RentalBookingEntity.Status.CONFIRMED);
-            booking.setConfirmedAt(now());
-            booking.getRoom().setStatus(RoomEntity.RoomStatus.RENTED);
-            roomRepo.save(booking.getRoom());
-        } else if (req.getStatus() == RentalBookingEntity.Status.REJECTED) {
-            if (booking.getStatus() == RentalBookingEntity.Status.CONFIRMED) {
-                throw new AppException("Đơn thuê đã được xác nhận, không thể từ chối");
-            }
-            booking.setStatus(RentalBookingEntity.Status.REJECTED);
-        } else {
-            throw new AppException("Chỉ hỗ trợ xác nhận hoặc từ chối đơn thuê");
+        if (req.getAction() != UpdateRentalBookingStatusRequest.Action.REJECT) {
+            throw new AppException("Chỉ hỗ trợ chấp thuận hoặc từ chối yêu cầu thuê");
+        }
+        if (booking.getStatus() == RentalBookingEntity.Status.DEPOSIT_PAID || ACTIVE_CONTRACT_STATUSES.contains(booking.getStatus())) {
+            throw new AppException("Đơn thuê đã được đặt cọc hoặc đã có hiệu lực, không thể từ chối");
         }
 
+        booking.setStatus(RentalBookingEntity.Status.REJECTED);
+        booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.CANCELLED);
+        booking.setPaymentPayUrl(null);
+        booking.setPaymentDeeplink(null);
+        booking.setPaymentQrCodeUrl(null);
         booking.setLandlordNote(blankToNull(req.getNote()));
+        booking.setPaymentMessage("Chủ trọ đã từ chối yêu cầu thuê.");
         bookingRepo.save(booking);
 
-        String action = booking.getStatus() == RentalBookingEntity.Status.CONFIRMED
-                ? "đã được xác nhận"
-                : "đã bị từ chối";
         notificationService.notifyUser(
                 booking.getSeeker(),
                 "BOOKING_UPDATED",
-                "Đơn thuê phòng đã được cập nhật",
-                "Đơn thuê phòng \"" + booking.getRoom().getTitle() + "\" của bạn " + action + ".",
+                "Yêu cầu thuê đã bị từ chối",
+                "Chủ trọ đã từ chối yêu cầu thuê phòng \"" + booking.getRoom().getTitle() + "\" của bạn.",
+                booking.getId()
+        );
+
+        return RentalBookingResponse.from(booking);
+    }
+
+    public RentalBookingResponse requestRenewal(Long id, RequestRenewalRequest req, Long seekerId) {
+        contractLifecycleService.syncNow();
+        RentalBookingEntity booking = bookingRepo.findById(id)
+                .orElseThrow(() -> new AppException("Không tìm thấy hợp đồng thuê", 404));
+        if (!booking.getSeeker().getId().equals(seekerId)) {
+            throw new AppException("Bạn không có quyền yêu cầu gia hạn hợp đồng này", 403);
+        }
+        if (booking.getStatus() != RentalBookingEntity.Status.EXPIRING_SOON) {
+            throw new AppException("Hợp đồng này hiện chưa ở giai đoạn yêu cầu gia hạn");
+        }
+
+        booking.setStatus(RentalBookingEntity.Status.RENEWAL_PENDING);
+        booking.setLandlordNote(null);
+        booking.setNote(blankToNull(req.getNote()));
+        booking.setPaymentMessage("Người thuê đã gửi yêu cầu gia hạn hợp đồng thêm " + req.getLeaseMonths() + " tháng. Đang chờ chủ trọ chốt điều khoản.");
+        bookingRepo.save(booking);
+
+        notificationService.notifyUser(
+                booking.getLandlord(),
+                "CONTRACT_RENEWAL_REQUESTED",
+                "Có yêu cầu gia hạn hợp đồng",
+                booking.getSeeker().getFullName() + " muốn gia hạn hợp đồng thuê phòng \"" + booking.getRoom().getTitle() + "\" thêm " + req.getLeaseMonths() + " tháng.",
+                booking.getId()
+        );
+
+        return RentalBookingResponse.from(booking);
+    }
+
+    public RentalBookingResponse approveRenewal(Long id, ApproveRenewalRequest req, Long actorId, UserEntity.Role actorRole) {
+        contractLifecycleService.syncNow();
+        RentalBookingEntity booking = bookingRepo.findById(id)
+                .orElseThrow(() -> new AppException("Không tìm thấy hợp đồng thuê", 404));
+        ensureLandlordOrAdmin(booking, actorId, actorRole);
+        if (booking.getStatus() != RentalBookingEntity.Status.RENEWAL_PENDING) {
+            throw new AppException("Hợp đồng này hiện chưa ở giai đoạn chốt gia hạn");
+        }
+
+        booking.setLeaseMonths(booking.getLeaseMonths() + req.getLeaseMonths());
+        booking.setContractTerms(blankToNull(req.getContractTerms()) != null ? req.getContractTerms().trim() : booking.getContractTerms());
+        booking.setLandlordNote(blankToNull(req.getNote()));
+        booking.setStatus(RentalBookingEntity.Status.ACTIVE);
+        booking.setPaymentMessage("Hai bên đã thống nhất gia hạn hợp đồng. Phòng tiếp tục ở trạng thái đã cho thuê.");
+        booking.getRoom().setStatus(RoomEntity.RoomStatus.RENTED);
+        roomRepo.save(booking.getRoom());
+        bookingRepo.save(booking);
+
+        notificationService.notifyUser(
+                booking.getSeeker(),
+                "CONTRACT_RENEWED",
+                "Hợp đồng đã được gia hạn",
+                "Chủ trọ đã chấp thuận gia hạn hợp đồng thuê phòng \"" + booking.getRoom().getTitle() + "\".",
+                booking.getId()
+        );
+
+        return RentalBookingResponse.from(booking);
+    }
+
+    public RentalBookingResponse rejectRenewal(Long id, RejectRenewalRequest req, Long actorId, UserEntity.Role actorRole) {
+        contractLifecycleService.syncNow();
+        RentalBookingEntity booking = bookingRepo.findById(id)
+                .orElseThrow(() -> new AppException("Không tìm thấy hợp đồng thuê", 404));
+        ensureLandlordOrAdmin(booking, actorId, actorRole);
+        if (booking.getStatus() != RentalBookingEntity.Status.RENEWAL_PENDING
+                && booking.getStatus() != RentalBookingEntity.Status.EXPIRING_SOON) {
+            throw new AppException("Hợp đồng này hiện chưa ở giai đoạn xử lý gia hạn");
+        }
+
+        booking.setStatus(RentalBookingEntity.Status.EXPIRING_SOON);
+        booking.setLandlordNote(blankToNull(req.getNote()));
+        booking.setPaymentMessage("Chủ trọ xác nhận không gia hạn. Phòng đang mở cho khách mới xem trước và nhận yêu cầu thuê sau ngày hết hạn.");
+        booking.getRoom().setStatus(RoomEntity.RoomStatus.AVAILABLE_SOON);
+        roomRepo.save(booking.getRoom());
+        bookingRepo.save(booking);
+
+        notificationService.notifyUser(
+                booking.getSeeker(),
+                "CONTRACT_RENEWAL_REJECTED",
+                "Không gia hạn hợp đồng",
+                "Chủ trọ đã xác nhận không gia hạn hợp đồng thuê phòng \"" + booking.getRoom().getTitle() + "\".",
+                booking.getId()
+        );
+
+        return RentalBookingResponse.from(booking);
+    }
+
+    public RentalBookingResponse confirmCashDeposit(
+            Long id,
+            ConfirmCashDepositRequest req,
+            Long actorId,
+            UserEntity.Role actorRole
+    ) {
+        RentalBookingEntity booking = bookingRepo.findById(id)
+                .orElseThrow(() -> new AppException("Không tìm thấy đơn thuê phòng", 404));
+        ensureLandlordOrAdmin(booking, actorId, actorRole);
+        if (!"CASH".equalsIgnoreCase(booking.getPaymentProvider())) {
+            throw new AppException("Đơn thuê này không dùng phương thức đặt cọc tiền mặt");
+        }
+        if (booking.getStatus() != RentalBookingEntity.Status.PENDING_PAYMENT) {
+            throw new AppException("Đơn thuê này chưa ở trạng thái chờ xác nhận nhận cọc");
+        }
+
+        booking.setStatus(RentalBookingEntity.Status.DEPOSIT_PAID);
+        booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.PAID);
+        booking.setDepositPaidAt(now());
+        booking.setLandlordNote(blankToNull(req.getReceiptNote()));
+        booking.setPaymentMessage("Chủ trọ đã xác nhận nhận cọc tiền mặt/chuyển khoản trực tiếp.");
+        bookingRepo.save(booking);
+
+        notificationService.notifyUser(
+                booking.getSeeker(),
+                "BOOKING_UPDATED",
+                "Chủ trọ đã xác nhận nhận cọc",
+                "Chủ trọ đã xác nhận nhận cọc cho phòng \"" + booking.getRoom().getTitle() + "\".",
                 booking.getId()
         );
 
@@ -302,14 +443,27 @@ public class RentalBookingService {
         }
 
         if ((booking.getPaymentStatus() == RentalBookingEntity.PaymentStatus.PAID
-                || booking.getStatus() == RentalBookingEntity.Status.DEPOSIT_PAID
-                || booking.getStatus() == RentalBookingEntity.Status.CONFIRMED)
+                || booking.getStatus() == RentalBookingEntity.Status.DEPOSIT_PAID)
                 && verification.isSuccess()) {
             return ipnResponse("02", "Order already confirmed");
         }
 
         applyPaymentResult(booking, verification, true);
         return ipnResponse("00", "Confirm Success");
+    }
+
+    private void applyFreshPaymentLink(RentalBookingEntity booking, HttpServletRequest request) {
+        VnpayPaymentService.PaymentCreationResult payment = vnpayPaymentService.createDepositPayment(booking, request);
+        booking.setStatus(RentalBookingEntity.Status.PENDING_PAYMENT);
+        booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.PENDING);
+        booking.setPaymentOrderId(payment.getOrderId());
+        booking.setPaymentRequestId(payment.getRequestId());
+        booking.setPaymentPayUrl(payment.getPayUrl());
+        booking.setPaymentDeeplink(null);
+        booking.setPaymentQrCodeUrl(null);
+        booking.setPaymentTransId(null);
+        booking.setPaymentMessage("Chủ trọ đã chấp thuận yêu cầu thuê. Vui lòng đọc điều khoản và thanh toán cọc để giữ phòng.");
+        booking.setPaymentResultCode(payment.getResultCode());
     }
 
     private void ensureParticipant(RentalBookingEntity booking, UserPrincipal principal) {
@@ -321,6 +475,28 @@ public class RentalBookingService {
         }
     }
 
+    private void ensureLandlordOrAdmin(RentalBookingEntity booking, Long actorId, UserEntity.Role actorRole) {
+        boolean isOwner = booking.getLandlord().getId().equals(actorId);
+        boolean isAdmin = actorRole == UserEntity.Role.ADMIN;
+        if (!isOwner && !isAdmin) {
+            throw new AppException("Bạn không có quyền xử lý đơn này", 403);
+        }
+    }
+
+    private void ensureNoActiveContract(Long roomId) {
+        if (bookingRepo.existsByRoom_IdAndStatusIn(roomId, ACTIVE_CONTRACT_STATUSES)) {
+            throw new AppException("Phòng này hiện đang có hợp đồng thuê còn hiệu lực");
+        }
+    }
+
+    private LocalDate resolveAvailableFrom(Long roomId) {
+        return bookingRepo.findByRoom_IdAndStatusIn(roomId, ACTIVE_CONTRACT_STATUSES).stream()
+                .map(contractLifecycleService::contractEndDate)
+                .max(LocalDate::compareTo)
+                .map(date -> date.plusDays(1))
+                .orElse(null);
+    }
+
     private BigDecimal defaultDepositAmount(RoomEntity room) {
         return room.getPrice();
     }
@@ -330,8 +506,8 @@ public class RentalBookingService {
     }
 
     private String buildContractTerms(RoomEntity room, CreateRentalBookingRequest req) {
-        return "Hợp đồng dự kiến cho phòng \"" + room.getTitle() + "\". "
-                + "Tiền phòng hằng tháng: " + room.getPrice().stripTrailingZeros().toPlainString() + " VND. "
+        return "Hợp đồng nháp cho phòng \"" + room.getTitle() + "\". "
+                + "Tiền thuê hàng tháng: " + room.getPrice().stripTrailingZeros().toPlainString() + " VND. "
                 + "Tiền cọc dự kiến: " + defaultDepositAmount(room).stripTrailingZeros().toPlainString() + " VND. "
                 + "Thời hạn thuê: " + req.getLeaseMonths() + " tháng. "
                 + "Số người ở: " + req.getOccupantCount() + ". "
@@ -363,12 +539,11 @@ public class RentalBookingService {
                         booking.getSeeker().getFullName() + " đã thanh toán cọc cho phòng \"" + booking.getRoom().getTitle() + "\" qua VNPAY.",
                         booking.getId()
                 );
-
                 notificationService.notifyUser(
                         booking.getSeeker(),
                         "BOOKING_UPDATED",
-                        "Đã ghi nhận thanh toán cọc",
-                        "Hệ thống đã ghi nhận tiền cọc cho phòng \"" + booking.getRoom().getTitle() + "\". Chủ nhà sẽ xác nhận tiếp.",
+                        "Đã ghi nhận tiền cọc",
+                        "Hệ thống đã ghi nhận tiền cọc cho phòng \"" + booking.getRoom().getTitle() + "\".",
                         booking.getId()
                 );
             }
@@ -377,7 +552,7 @@ public class RentalBookingService {
                 markBookingPaymentExpired(booking);
             } else {
                 booking.setPaymentStatus(RentalBookingEntity.PaymentStatus.FAILED);
-                if (booking.getStatus() != RentalBookingEntity.Status.CONFIRMED) {
+                if (booking.getStatus() != RentalBookingEntity.Status.DEPOSIT_PAID) {
                     booking.setStatus(RentalBookingEntity.Status.PAYMENT_FAILED);
                 }
             }
@@ -448,7 +623,7 @@ public class RentalBookingService {
     }
 
     private void markBookingPaymentExpired(RentalBookingEntity booking) {
-        if (booking.getStatus() == RentalBookingEntity.Status.CONFIRMED) {
+        if (booking.getStatus() == RentalBookingEntity.Status.DEPOSIT_PAID) {
             return;
         }
 
@@ -466,7 +641,9 @@ public class RentalBookingService {
     }
 
     private int toInt(Object value, int fallback) {
-        if (value == null) return fallback;
+        if (value == null) {
+            return fallback;
+        }
         try {
             return Integer.parseInt(String.valueOf(value));
         } catch (NumberFormatException ex) {

@@ -32,7 +32,10 @@ public class RoomSpecification {
         return (root, query, cb) -> {
             var predicates = new ArrayList<Predicate>();
 
-            predicates.add(cb.equal(root.get("status"), RoomEntity.RoomStatus.ACTIVE));
+            predicates.add(root.get("status").in(
+                    RoomEntity.RoomStatus.ACTIVE,
+                    RoomEntity.RoomStatus.AVAILABLE_SOON
+            ));
 
             if (keyword != null && !keyword.isBlank()) {
                 predicates.add(buildKeywordPredicate(keyword, root, cb));

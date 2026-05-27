@@ -24,6 +24,7 @@ public class RentalBookingResponse {
     private Long roomId;
     private String roomTitle;
     private String roomPrimaryImage;
+    private com.homehn.backend.entity.RoomEntity.RoomStatus roomStatus;
     private Long seekerId;
     private String seekerName;
     private Long landlordId;
@@ -33,10 +34,14 @@ public class RentalBookingResponse {
     private String tenantEmail;
     private String tenantIdentityNumber;
     private LocalDate moveInDate;
+    private LocalDate contractEndDate;
     private Integer leaseMonths;
     private Integer occupantCount;
     private BigDecimal monthlyRent;
     private BigDecimal depositAmount;
+    private BigDecimal electricPrice;
+    private BigDecimal waterPrice;
+    private BigDecimal otherFees;
     private String contractCode;
     private String contractTerms;
     private String note;
@@ -44,6 +49,7 @@ public class RentalBookingResponse {
     private RentalBookingEntity.Status status;
     private RentalBookingEntity.PaymentStatus paymentStatus;
     private String paymentProvider;
+    private String paymentMethod;
     private String paymentOrderId;
     private String paymentPayUrl;
     private String paymentDeeplink;
@@ -52,7 +58,6 @@ public class RentalBookingResponse {
     private Integer paymentResultCode;
     private String paymentMessage;
     private LocalDateTime depositPaidAt;
-    private LocalDateTime confirmedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -68,6 +73,7 @@ public class RentalBookingResponse {
                 .roomId(booking.getRoom().getId())
                 .roomTitle(booking.getRoom().getTitle())
                 .roomPrimaryImage(primaryImage)
+                .roomStatus(booking.getRoom().getStatus())
                 .seekerId(booking.getSeeker().getId())
                 .seekerName(booking.getSeeker().getFullName())
                 .landlordId(booking.getLandlord().getId())
@@ -77,10 +83,14 @@ public class RentalBookingResponse {
                 .tenantEmail(booking.getTenantEmail())
                 .tenantIdentityNumber(booking.getTenantIdentityNumber())
                 .moveInDate(booking.getMoveInDate())
+                .contractEndDate(resolveContractEndDate(booking))
                 .leaseMonths(booking.getLeaseMonths())
                 .occupantCount(booking.getOccupantCount())
                 .monthlyRent(booking.getMonthlyRent())
                 .depositAmount(booking.getDepositAmount())
+                .electricPrice(booking.getRoom().getElectricPrice())
+                .waterPrice(booking.getRoom().getWaterPrice())
+                .otherFees(booking.getRoom().getOtherFees())
                 .contractCode(booking.getContractCode())
                 .contractTerms(booking.getContractTerms())
                 .note(booking.getNote())
@@ -88,6 +98,7 @@ public class RentalBookingResponse {
                 .status(booking.getStatus())
                 .paymentStatus(booking.getPaymentStatus())
                 .paymentProvider(booking.getPaymentProvider())
+                .paymentMethod(booking.getPaymentProvider())
                 .paymentOrderId(booking.getPaymentOrderId())
                 .paymentPayUrl(booking.getPaymentPayUrl())
                 .paymentDeeplink(booking.getPaymentDeeplink())
@@ -96,10 +107,16 @@ public class RentalBookingResponse {
                 .paymentResultCode(booking.getPaymentResultCode())
                 .paymentMessage(booking.getPaymentMessage())
                 .depositPaidAt(booking.getDepositPaidAt())
-                .confirmedAt(booking.getConfirmedAt())
                 .createdAt(normalizeCreatedAt(booking))
                 .updatedAt(booking.getUpdatedAt())
                 .build();
+    }
+
+    private static LocalDate resolveContractEndDate(RentalBookingEntity booking) {
+        if (booking.getMoveInDate() == null || booking.getLeaseMonths() == null) {
+            return null;
+        }
+        return booking.getMoveInDate().plusMonths(booking.getLeaseMonths()).minusDays(1);
     }
 
     private static LocalDateTime normalizeCreatedAt(RentalBookingEntity booking) {

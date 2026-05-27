@@ -80,7 +80,7 @@ public class NotificationController {
             case "REPORT_RECEIVED", "REPORT_RESOLVED", "ADMIN_REPORT_RECEIVED", "REPORT_LANDLORD_RESPONDED" -> "REPORT";
             case "ROOM_APPROVED", "ROOM_REJECTED", "REVIEW_RECEIVED" -> "ROOM";
             case "APPOINTMENT_REQUESTED", "APPOINTMENT_UPDATED", "APPOINTMENT_CANCELLED" -> "APPOINTMENT";
-            case "BOOKING_CREATED", "BOOKING_UPDATED", "BOOKING_DEPOSIT_PAID" -> "BOOKING";
+            case "BOOKING_CREATED", "BOOKING_UPDATED", "BOOKING_DEPOSIT_PAID", "INVOICE_CREATED", "INVOICE_PAID" -> "BOOKING";
             default -> null;
         };
     }
@@ -92,7 +92,7 @@ public class NotificationController {
             case "ROOM_APPROVED", "ROOM_REJECTED", "REVIEW_RECEIVED" -> "/rooms/" + relatedId;
             case "APPOINTMENT_REQUESTED", "APPOINTMENT_CANCELLED" -> "/landlord";
             case "APPOINTMENT_UPDATED" -> "/rooms";
-            case "BOOKING_CREATED", "BOOKING_UPDATED", "BOOKING_DEPOSIT_PAID" -> "/bookings/" + relatedId;
+            case "BOOKING_CREATED", "BOOKING_UPDATED", "BOOKING_DEPOSIT_PAID", "INVOICE_CREATED", "INVOICE_PAID" -> "/bookings/" + relatedId;
             default -> null;
         };
     }

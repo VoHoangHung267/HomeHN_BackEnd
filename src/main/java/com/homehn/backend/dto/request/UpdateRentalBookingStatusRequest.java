@@ -1,6 +1,5 @@
 package com.homehn.backend.dto.request;
 
-import com.homehn.backend.entity.RentalBookingEntity;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
@@ -9,8 +8,13 @@ import lombok.Setter;
 @Setter
 public class UpdateRentalBookingStatusRequest {
 
-    @NotNull(message = "Vui lòng chọn trạng thái")
-    private RentalBookingEntity.Status status;
+    @NotNull(message = "Vui lòng chọn thao tác xử lý")
+    private Action action;
 
     private String note;
+
+    public enum Action {
+        APPROVE,
+        REJECT
+    }
 }

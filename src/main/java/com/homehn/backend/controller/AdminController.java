@@ -2,26 +2,17 @@ package com.homehn.backend.controller;
 
 import com.homehn.backend.dto.request.RejectRoomRequest;
 import com.homehn.backend.dto.request.ResolveReportRequest;
-import com.homehn.backend.dto.response.ApiResponse;
-import com.homehn.backend.dto.response.ReportResponse;
-import com.homehn.backend.dto.response.RoomResponse;
-import com.homehn.backend.dto.response.StatsResponse;
-import com.homehn.backend.dto.response.UserResponse;
+import com.homehn.backend.dto.response.*;
 import com.homehn.backend.entity.ReportEntity;
 import com.homehn.backend.entity.RoomEntity;
+import com.homehn.backend.entity.UserEntity;
 import com.homehn.backend.service.impl.AdminService;
+import com.homehn.backend.service.impl.ReviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -32,6 +23,7 @@ import java.util.List;
 class AdminController {
 
     private final AdminService adminService;
+    private final ReviewService reviewService;
 
     @GetMapping("/stats")
     public ResponseEntity<ApiResponse<StatsResponse>> stats() {
@@ -114,5 +106,16 @@ class AdminController {
     ) {
         adminService.resolveReport(id, body);
         return ResponseEntity.ok(ApiResponse.ok("Đã xử lý báo cáo", null));
+    }
+
+    @GetMapping("/reviews")
+    public ResponseEntity<ApiResponse<List<ReviewResponse>>> allReviews() {
+        return ResponseEntity.ok(ApiResponse.ok(reviewService.getAllReviews()));
+    }
+
+    @DeleteMapping("/reviews/{id}")
+    public ResponseEntity<ApiResponse<Void>> deleteReview(@PathVariable Long id) {
+        reviewService.deleteReview(id, -1L, UserEntity.Role.ADMIN);
+        return ResponseEntity.ok(ApiResponse.ok("Đã xoá đánh giá", null));
     }
 }

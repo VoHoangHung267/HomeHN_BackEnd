@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ReviewRepository extends JpaRepository<ReviewEntity, Long> {
+    List<ReviewEntity> findAllByOrderByCreatedAtDesc();
     List<ReviewEntity> findByRoom_IdOrderByCreatedAtDesc(Long roomId);
     boolean existsByReviewer_IdAndRoom_Id(Long reviewerId, Long roomId);
     Optional<ReviewEntity> findByReviewer_IdAndRoom_Id(Long reviewerId, Long roomId);

@@ -121,5 +121,5 @@ public class RoomEntity {
 
     public enum RoomType     { PHONG_TRO, CHUNG_CU_MINI, STUDIO, NGAN_PHONG, NHA_NGUYEN_CAN }
     public enum GenderRequirement { ALL, MALE, FEMALE }
-    public enum RoomStatus   { ACTIVE, PENDING, REJECTED, HIDDEN, EXPIRED, RENTED }
+    public enum RoomStatus   { ACTIVE, PENDING, REJECTED, HIDDEN, EXPIRED, RENTED, AVAILABLE_SOON, HIDDEN_REVIEW }
 }

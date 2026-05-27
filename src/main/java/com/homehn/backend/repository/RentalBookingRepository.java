@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDate;
 
 public interface RentalBookingRepository extends JpaRepository<RentalBookingEntity, Long> {
     List<RentalBookingEntity> findAllByOrderByCreatedAtDesc();
@@ -21,4 +22,10 @@ public interface RentalBookingRepository extends JpaRepository<RentalBookingEnti
             Long seekerId,
             Collection<RentalBookingEntity.Status> statuses
     );
+    List<RentalBookingEntity> findByStatusAndMoveInDateLessThanEqual(
+            RentalBookingEntity.Status status,
+            LocalDate moveInDate
+    );
+    List<RentalBookingEntity> findByStatusIn(Collection<RentalBookingEntity.Status> statuses);
+    List<RentalBookingEntity> findByRoom_IdInAndStatusIn(Collection<Long> roomIds, Collection<RentalBookingEntity.Status> statuses);
 }

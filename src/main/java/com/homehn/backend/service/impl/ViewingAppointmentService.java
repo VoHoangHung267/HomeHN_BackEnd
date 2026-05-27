@@ -31,8 +31,9 @@ public class ViewingAppointmentService {
         RoomEntity room = roomRepo.findById(roomId)
                 .orElseThrow(() -> new AppException("Phòng không tồn tại", 404));
 
-        if (room.getStatus() != RoomEntity.RoomStatus.ACTIVE) {
-            throw new AppException("Chỉ có thể đặt lịch xem phòng đang hiển thị");
+        if (room.getStatus() != RoomEntity.RoomStatus.ACTIVE
+                && room.getStatus() != RoomEntity.RoomStatus.AVAILABLE_SOON) {
+            throw new AppException("Chỉ có thể đặt lịch xem với phòng đang hiển thị hoặc sắp trống");
         }
         if (room.getLandlord().getId().equals(seeker.getId())) {
             throw new AppException("Bạn không thể đặt lịch xem phòng của chính mình");
@@ -107,11 +108,6 @@ public class ViewingAppointmentService {
         appointment.setStatus(req.getStatus());
         appointment.setLandlordNote(req.getNote());
         appointmentRepo.save(appointment);
-
-        if (req.getStatus() == ViewingAppointmentEntity.Status.COMPLETED) {
-            appointment.getRoom().setStatus(RoomEntity.RoomStatus.RENTED);
-            roomRepo.save(appointment.getRoom());
-        }
 
         notificationService.notifyUser(
                 appointment.getSeeker(),

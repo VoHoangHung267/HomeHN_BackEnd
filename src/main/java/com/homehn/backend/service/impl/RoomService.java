@@ -10,6 +10,7 @@ import com.homehn.backend.entity.RoomImageEntity;
 import com.homehn.backend.entity.UserEntity;
 import com.homehn.backend.exception.AppException;
 import com.homehn.backend.repository.FavoriteRepository;
+import com.homehn.backend.repository.RentalBookingRepository;
 import com.homehn.backend.repository.ReportRepository;
 import com.homehn.backend.repository.RoomRepository;
 import com.homehn.backend.repository.RoomSpecification;
@@ -18,7 +19,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -26,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -36,15 +38,15 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional
 public class RoomService {
-
     private final RoomRepository roomRepo;
     private final FavoriteRepository favoriteRepo;
     private final UserRepository userRepo;
     private final ReportRepository reportRepo;
+    private final RentalBookingRepository bookingRepo;
     private final CloudinaryService cloudinaryService;
     private final NotificationService notificationService;
+    private final ContractLifecycleService contractLifecycleService;
 
-    @Transactional(readOnly = true)
     public Page<RoomResponse> search(
             String keyword, String district,
             BigDecimal minPrice, BigDecimal maxPrice,
@@ -54,6 +56,7 @@ public class RoomService {
             String sortBy,
             int page, int size, Long currentUserId
     ) {
+        contractLifecycleService.syncNow();
         var spec = RoomSpecification.filter(keyword, district, minPrice, maxPrice,
                 minArea, maxArea, roomType, isFurnished, gender);
         var pageable = PageRequest.of(page, size, resolveSort(sortBy));
@@ -63,8 +66,8 @@ public class RoomService {
         return new PageImpl<>(responses, pageable, roomPage.getTotalElements());
     }
 
-    @Transactional(readOnly = true)
     public List<RoomResponse> getRecommendations(Long roomId, Long currentUserId) {
+        contractLifecycleService.syncNow();
         RoomEntity baseRoom = roomRepo.findById(roomId)
                 .orElseThrow(() -> new AppException("Phòng không tồn tại", 404));
 
@@ -111,10 +114,11 @@ public class RoomService {
 
     @Transactional
     public RoomResponse getById(Long id, Long currentUserId) {
+        contractLifecycleService.syncNow();
         var room = roomRepo.findByIdWithImages(id)
                 .orElseThrow(() -> new AppException("Phòng không tồn tại", 404));
 
-        if (room.getStatus() != RoomEntity.RoomStatus.ACTIVE) {
+        if (!isPubliclyVisible(room.getStatus())) {
             if (currentUserId == null) {
                 throw new AppException("Phòng không tồn tại", 404);
             }
@@ -136,6 +140,7 @@ public class RoomService {
 
         var resp = RoomResponse.from(room);
         resp.setAmenities(amenityNames);
+        resp.setAvailableFrom(resolveAvailableFrom(room.getId()));
         if (currentUserId != null) {
             resp.setFavorited(favoriteRepo.existsByUser_IdAndRoom_Id(currentUserId, id));
         }
@@ -186,16 +191,23 @@ public class RoomService {
         boolean allowed =
                 (currentStatus == RoomEntity.RoomStatus.ACTIVE && status == RoomEntity.RoomStatus.HIDDEN)
                         || (currentStatus == RoomEntity.RoomStatus.HIDDEN && status == RoomEntity.RoomStatus.ACTIVE)
+                        || (currentStatus == RoomEntity.RoomStatus.RENTED && status == RoomEntity.RoomStatus.AVAILABLE_SOON)
+                        || (currentStatus == RoomEntity.RoomStatus.AVAILABLE_SOON && status == RoomEntity.RoomStatus.RENTED)
+                        || (currentStatus == RoomEntity.RoomStatus.AVAILABLE_SOON && status == RoomEntity.RoomStatus.ACTIVE)
+                        || (currentStatus == RoomEntity.RoomStatus.HIDDEN_REVIEW && status == RoomEntity.RoomStatus.ACTIVE)
+                        || (currentStatus == RoomEntity.RoomStatus.HIDDEN_REVIEW && status == RoomEntity.RoomStatus.AVAILABLE_SOON)
                         || ((currentStatus == RoomEntity.RoomStatus.ACTIVE || currentStatus == RoomEntity.RoomStatus.HIDDEN)
-                        && status == RoomEntity.RoomStatus.RENTED)
-                        || (currentStatus == RoomEntity.RoomStatus.RENTED && status == RoomEntity.RoomStatus.ACTIVE);
+                        && status == RoomEntity.RoomStatus.RENTED);
 
         if (!allowed) {
             throw new AppException("Không thể chuyển trạng thái phòng từ " + currentStatus + " sang " + status);
         }
 
         room.setStatus(status);
-        return RoomResponse.from(roomRepo.save(room));
+        RoomEntity saved = roomRepo.save(room);
+        RoomResponse response = RoomResponse.from(saved);
+        response.setAvailableFrom(resolveAvailableFrom(saved.getId()));
+        return response;
     }
 
     public RoomResponse update(Long id, RoomRequest req, Long actorId) {
@@ -256,12 +268,9 @@ public class RoomService {
         roomRepo.save(room);
     }
 
-    @Transactional(readOnly = true)
     public List<RoomResponse> getMyRooms(Long landlordId) {
-        return roomRepo.findByLandlordIdOrderByCreatedAtDesc(landlordId)
-                .stream()
-                .map(RoomResponse::from)
-                .toList();
+        contractLifecycleService.syncNow();
+        return hydrateRooms(roomRepo.findByLandlordIdOrderByCreatedAtDesc(landlordId), null);
     }
 
     public boolean toggleFavorite(Long roomId, Long userId) {
@@ -271,7 +280,7 @@ public class RoomService {
         }
         var room = roomRepo.findById(roomId)
                 .orElseThrow(() -> new AppException("Phòng không tồn tại", 404));
-        if (room.getStatus() != RoomEntity.RoomStatus.ACTIVE) {
+        if (!isPubliclyVisible(room.getStatus())) {
             throw new AppException("Chỉ có thể yêu thích phòng đang hiển thị");
         }
         var user = userRepo.findById(userId).orElseThrow();
@@ -286,7 +295,7 @@ public class RoomService {
         RoomEntity room = roomRepo.findById(roomId)
                 .orElseThrow(() -> new AppException("Phòng không tồn tại", 404));
 
-        if (room.getStatus() != RoomEntity.RoomStatus.ACTIVE) {
+        if (!isPubliclyVisible(room.getStatus())) {
             throw new AppException("Chỉ có thể báo cáo phòng đang hiển thị");
         }
 
@@ -324,8 +333,8 @@ public class RoomService {
                 ));
     }
 
-    @Transactional(readOnly = true)
     public List<RoomResponse> getFavorites(Long userId) {
+        contractLifecycleService.syncNow();
         List<FavoriteEntity> favorites = favoriteRepo.findByUserIdWithImages(userId);
 
         Map<Long, List<RoomAmenityEntity>> amenityMap = favoriteRepo.findByUserIdWithAmenities(userId)
@@ -338,6 +347,7 @@ public class RoomService {
         return favorites.stream().map(f -> {
             var room = f.getRoom();
             var resp = RoomResponse.from(room);
+            resp.setAvailableFrom(resolveAvailableFrom(room.getId()));
 
             var amenities = amenityMap.get(room.getId());
             if (amenities != null) {
@@ -368,9 +378,11 @@ public class RoomService {
         List<RoomEntity> roomsWithAmenities = roomRepo.findAllByIdWithAmenities(ids);
         Map<Long, RoomEntity> amenityMap = roomsWithAmenities.stream()
                 .collect(Collectors.toMap(RoomEntity::getId, r -> r));
+        Map<Long, LocalDate> availableFromMap = resolveAvailableFromMap(ids);
 
         return roomsWithImages.stream().map(r -> {
             var resp = RoomResponse.from(r);
+            resp.setAvailableFrom(availableFromMap.get(r.getId()));
             RoomEntity withAmenities = amenityMap.get(r.getId());
             if (withAmenities != null) {
                 resp.setAmenities(withAmenities.getAmenities().stream()
@@ -404,5 +416,32 @@ public class RoomService {
             throw new AccessDeniedException("Bạn không có quyền thao tác trên phòng này");
         }
         return room;
+    }
+
+    private boolean isPubliclyVisible(RoomEntity.RoomStatus status) {
+        return status == RoomEntity.RoomStatus.ACTIVE || status == RoomEntity.RoomStatus.AVAILABLE_SOON;
+    }
+
+    private LocalDate resolveAvailableFrom(Long roomId) {
+        return resolveAvailableFromMap(List.of(roomId)).get(roomId);
+    }
+
+    private Map<Long, LocalDate> resolveAvailableFromMap(Collection<Long> roomIds) {
+        if (roomIds.isEmpty()) {
+            return Map.of();
+        }
+        return bookingRepo.findByRoom_IdInAndStatusIn(
+                        roomIds,
+                        List.of(
+                                com.homehn.backend.entity.RentalBookingEntity.Status.ACTIVE,
+                                com.homehn.backend.entity.RentalBookingEntity.Status.EXPIRING_SOON,
+                                com.homehn.backend.entity.RentalBookingEntity.Status.RENEWAL_PENDING
+                        )
+                ).stream()
+                .collect(Collectors.toMap(
+                        booking -> booking.getRoom().getId(),
+                        booking -> contractLifecycleService.contractEndDate(booking).plusDays(1),
+                        (left, right) -> left.isAfter(right) ? left : right
+                ));
     }
 }
