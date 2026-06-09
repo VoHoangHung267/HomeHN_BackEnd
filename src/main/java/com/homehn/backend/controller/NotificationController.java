@@ -70,8 +70,7 @@ public class NotificationController {
         NotificationEntity n = notifRepo.findById(id).orElseThrow();
         if (!n.getUser().getId().equals(user.getId()))
             throw new com.homehn.backend.exception.AppException("Không có quyền", 403);
-        n.setIsRead(true);
-        notifRepo.save(n);
+        notifRepo.markOneRead(id, user.getId());
         return ResponseEntity.ok(ApiResponse.ok("OK", null));
     }
 
