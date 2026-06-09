@@ -3,6 +3,7 @@ package com.homehn.backend.repository;
 import com.homehn.backend.entity.ViewingAppointmentEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface ViewingAppointmentRepository extends JpaRepository<ViewingAppointmentEntity, Long> {
@@ -14,5 +15,18 @@ public interface ViewingAppointmentRepository extends JpaRepository<ViewingAppoi
             Long roomId,
             Long seekerId,
             List<ViewingAppointmentEntity.Status> statuses
+    );
+
+    boolean existsByRoom_IdAndRequestedAtAndStatusIn(
+            Long roomId,
+            LocalDateTime requestedAt,
+            List<ViewingAppointmentEntity.Status> statuses
+    );
+
+    boolean existsByRoom_IdAndRequestedAtAndStatusInAndIdNot(
+            Long roomId,
+            LocalDateTime requestedAt,
+            List<ViewingAppointmentEntity.Status> statuses,
+            Long id
     );
 }

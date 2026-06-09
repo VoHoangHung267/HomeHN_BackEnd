@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -51,6 +52,8 @@ public class ViewingAppointmentService {
         if (existingActive) {
             throw new AppException("Bạn đã có yêu cầu xem phòng đang chờ xử lý");
         }
+
+        ensureNoAcceptedConflict(roomId, req.getRequestedAt(), null);
 
         ViewingAppointmentEntity appointment = appointmentRepo.save(ViewingAppointmentEntity.builder()
                 .room(room)
@@ -102,7 +105,11 @@ public class ViewingAppointmentService {
             if (req.getRequestedAt() == null) {
                 throw new AppException("Vui lòng nhập thời gian đề xuất mới");
             }
+            ensureNoAcceptedConflict(appointment.getRoom().getId(), req.getRequestedAt(), appointment.getId());
             appointment.setRequestedAt(req.getRequestedAt());
+        }
+        if (req.getStatus() == ViewingAppointmentEntity.Status.ACCEPTED) {
+            ensureNoAcceptedConflict(appointment.getRoom().getId(), appointment.getRequestedAt(), appointment.getId());
         }
 
         appointment.setStatus(req.getStatus());
@@ -150,5 +157,24 @@ public class ViewingAppointmentService {
             case COMPLETED -> "đã hoàn tất";
             default -> "đang chờ xử lý";
         };
+    }
+
+    private void ensureNoAcceptedConflict(Long roomId, LocalDateTime requestedAt, Long currentAppointmentId) {
+        boolean conflicted = currentAppointmentId == null
+                ? appointmentRepo.existsByRoom_IdAndRequestedAtAndStatusIn(
+                roomId,
+                requestedAt,
+                List.of(ViewingAppointmentEntity.Status.ACCEPTED)
+        )
+                : appointmentRepo.existsByRoom_IdAndRequestedAtAndStatusInAndIdNot(
+                roomId,
+                requestedAt,
+                List.of(ViewingAppointmentEntity.Status.ACCEPTED),
+                currentAppointmentId
+        );
+
+        if (conflicted) {
+            throw new AppException("Khung giờ này đã có lịch xem phòng được xác nhận. Vui lòng chọn giờ khác.");
+        }
     }
 }
