@@ -179,10 +179,12 @@ class RoomController {
     @PreAuthorize("hasAnyRole('LANDLORD','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> uploadImages(
             @PathVariable Long id,
-            @RequestParam("files") List<MultipartFile> files,
+            @RequestParam(value = "files", required = false) List<MultipartFile> files,
+            @RequestParam(value = "retainedImageUrls", required = false) List<String> retainedImageUrls,
+            @RequestParam(value = "syncExistingImages", defaultValue = "false") boolean syncExistingImages,
             @AuthenticationPrincipal UserPrincipal user
     ) {
-        roomService.uploadImages(id, files, user.getId());
+        roomService.uploadImages(id, files, retainedImageUrls, syncExistingImages, user.getId());
         return ResponseEntity.ok(ApiResponse.ok("Upload ảnh thành công", null));
     }
 

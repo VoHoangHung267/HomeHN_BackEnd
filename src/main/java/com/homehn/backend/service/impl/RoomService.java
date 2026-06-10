@@ -30,6 +30,7 @@ import java.time.LocalDate;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -245,10 +246,16 @@ public class RoomService {
         roomRepo.delete(findOwnedRoom(id, actor));
     }
 
-    public void uploadImages(Long roomId, List<MultipartFile> files, Long actorId) {
+    public void uploadImages(Long roomId, List<MultipartFile> files, List<String> retainedImageUrls, boolean syncExistingImages, Long actorId) {
         UserEntity actor = userRepo.findById(actorId).orElseThrow();
         var room = findOwnedRoom(roomId, actor);
+        syncRetainedImages(room, retainedImageUrls, syncExistingImages);
         boolean hasImages = !room.getImages().isEmpty();
+
+        if (files == null || files.isEmpty()) {
+            roomRepo.save(room);
+            return;
+        }
 
         for (int i = 0; i < files.size(); i++) {
             var uploaded = cloudinaryService.upload(files.get(i), "phongtro/rooms");
@@ -265,7 +272,39 @@ public class RoomService {
                     .build();
             room.getImages().add(img);
         }
+        normalizeRoomImages(room);
         roomRepo.save(room);
+    }
+
+    private void syncRetainedImages(RoomEntity room, List<String> retainedImageUrls, boolean syncExistingImages) {
+        if (!syncExistingImages) {
+            return;
+        }
+
+        var retainedSet = (retainedImageUrls == null ? List.<String>of() : retainedImageUrls).stream()
+                .filter(url -> url != null && !url.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        var removedImages = room.getImages().stream()
+                .filter(image -> !retainedSet.contains(image.getImageUrl()))
+                .toList();
+
+        for (RoomImageEntity image : removedImages) {
+            if (image.getPublicId() != null && !image.getPublicId().isBlank()) {
+                cloudinaryService.delete(image.getPublicId());
+            }
+        }
+
+        room.getImages().removeIf(image -> !retainedSet.contains(image.getImageUrl()));
+        normalizeRoomImages(room);
+    }
+
+    private void normalizeRoomImages(RoomEntity room) {
+        for (int i = 0; i < room.getImages().size(); i++) {
+            RoomImageEntity image = room.getImages().get(i);
+            image.setSortOrder(i);
+            image.setPrimary(i == 0);
+        }
     }
 
     public List<RoomResponse> getMyRooms(Long landlordId) {
