@@ -23,7 +23,6 @@ public class ExtractRoomFormResponse {
     private BigDecimal otherFees;
     private String address;
     private String ward;
-    private String district;
     private String city;
     private RoomEntity.RoomType roomType;
     private Boolean isFurnished;

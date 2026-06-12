@@ -31,7 +31,6 @@ public class RoomResponse {
     private BigDecimal otherFees;
     private String address;
     private String ward;
-    private String district;
     private String city;
     private Double latitude;
     private Double longitude;
@@ -66,7 +65,6 @@ public class RoomResponse {
                 .otherFees(r.getOtherFees())
                 .address(r.getAddress())
                 .ward(r.getWard())
-                .district(r.getDistrict())
                 .city(r.getCity())
                 .latitude(r.getLatitude())
                 .longitude(r.getLongitude())

@@ -63,12 +63,9 @@ public class RoomRequest {
     @Size(max = 255, message = "Địa chỉ không được vượt quá 255 ký tự")
     private String address;
 
+    @NotBlank(message = "Phường/xã không được để trống")
     @Size(max = 255, message = "Phường/xã không được vượt quá 255 ký tự")
     private String ward;
-
-    @NotBlank(message = "Quận/huyện không được để trống")
-    @Size(max = 255, message = "Quận/huyện không được vượt quá 255 ký tự")
-    private String district;
 
     @NotBlank(message = "Thành phố không được để trống")
     @Size(max = 255, message = "Thành phố không được vượt quá 255 ký tự")

@@ -27,10 +27,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -40,6 +42,35 @@ import java.util.StringJoiner;
 public class GeminiRoomCopyService {
 
     private static final Logger log = LoggerFactory.getLogger(GeminiRoomCopyService.class);
+
+    private static final List<String> HANOI_WARDS = List.of(
+            "Hoàn Kiếm", "Cửa Nam", "Ba Đình", "Ngọc Hà", "Giảng Võ",
+            "Hai Bà Trưng", "Vĩnh Tuy", "Bạch Mai", "Đống Đa", "Kim Liên",
+            "Văn Miếu - Quốc Tử Giám", "Láng", "Ô Chợ Dừa", "Hồng Hà", "Lĩnh Nam",
+            "Hoàng Mai", "Vĩnh Hưng", "Tương Mai", "Định Công", "Hoàng Liệt",
+            "Yên Sở", "Thanh Xuân", "Khương Đình", "Phương Liệt", "Cầu Giấy",
+            "Nghĩa Đô", "Yên Hòa", "Tây Hồ", "Phú Thượng", "Tây Tựu",
+            "Phú Diễn", "Xuân Đỉnh", "Đông Ngạc", "Thượng Cát", "Từ Liêm",
+            "Xuân Phương", "Tây Mỗ", "Đại Mỗ", "Long Biên", "Bồ Đề",
+            "Việt Hưng", "Phúc Lợi", "Hà Đông", "Dương Nội", "Yên Nghĩa",
+            "Phú Lương", "Kiến Hưng", "Thanh Liệt", "Chương Mỹ", "Sơn Tây",
+            "Tùng Thiện", "Thanh Trì", "Đại Thanh", "Nam Phù", "Ngọc Hồi",
+            "Thượng Phúc", "Thường Tín", "Chương Dương", "Hồng Vân", "Phú Xuyên",
+            "Phượng Dực", "Chuyên Mỹ", "Đại Xuyên", "Thanh Oai", "Bình Minh",
+            "Tam Hưng", "Dân Hòa", "Vân Đình", "Ứng Thiên", "Hòa Xá",
+            "Ứng Hòa", "Mỹ Đức", "Hồng Sơn", "Phúc Sơn", "Hương Sơn",
+            "Phú Nghĩa", "Xuân Mai", "Trần Phú", "Hòa Phú", "Quảng Bị",
+            "Minh Châu", "Quảng Oai", "Vật Lại", "Cổ Đô", "Bất Bạt",
+            "Suối Hai", "Ba Vì", "Yên Bài", "Đoài Phương", "Phúc Thọ",
+            "Phúc Lộc", "Hát Môn", "Thạch Thất", "Hạ Bằng", "Tây Phương",
+            "Hòa Lạc", "Yên Xuân", "Quốc Oai", "Hưng Đạo", "Kiều Phú",
+            "Phú Cát", "Hoài Đức", "Dương Hòa", "Sơn Đồng", "An Khánh",
+            "Đan Phượng", "Ô Diên", "Liên Minh", "Gia Lâm", "Thuận An",
+            "Bát Tràng", "Phù Đổng", "Thư Lâm", "Đông Anh", "Phúc Thịnh",
+            "Thiên Lộc", "Vĩnh Thanh", "Mê Linh", "Yên Lãng", "Tiến Thắng",
+            "Quang Minh", "Sóc Sơn", "Đa Phúc", "Nội Bài", "Trung Giã",
+            "Kim Anh"
+    );
 
     private static final Set<String> ALLOWED_AMENITIES = Set.of(
             "WiFi",
@@ -103,7 +134,6 @@ public class GeminiRoomCopyService {
                     nullableDecimal(output.get("otherFees")),
                     nullableString(output.get("address")),
                     nullableString(output.get("ward")),
-                    nullableString(output.get("district")),
                     nullableString(output.get("city")),
                     parseRoomType(output.get("roomType")),
                     nullableBoolean(output.get("isFurnished")),
@@ -135,19 +165,7 @@ public class GeminiRoomCopyService {
         try {
             String text = requestJson(buildSearchPrompt(query), "parse-search");
             Map<String, Object> output = parseJsonObject(text, "parse-search");
-            return new AiSearchResponse(
-                    nullableString(output.get("keyword")),
-                    nullableString(output.get("district")),
-                    nullableDecimal(output.get("minPrice")),
-                    nullableDecimal(output.get("maxPrice")),
-                    nullableDecimal(output.get("minArea")),
-                    nullableDecimal(output.get("maxArea")),
-                    parseRoomType(output.get("roomType")),
-                    nullableBoolean(output.get("isFurnished")),
-                    parseGenderRequirement(output.get("genderRequirement")),
-                    parseSortBy(output.get("sortBy")),
-                    nullableString(output.get("note"))
-            );
+            return normalizeAiSearchResponse(query, output);
         } catch (IOException e) {
             throw new AppException("Không đọc được phản hồi từ Gemini.", 502);
         } catch (InterruptedException e) {
@@ -323,7 +341,7 @@ public class GeminiRoomCopyService {
         prompt.add("- Giá điện: " + moneyText(request.getElectricPrice()));
         prompt.add("- Giá nước: " + moneyText(request.getWaterPrice()));
         prompt.add("- Phí khác: " + moneyText(request.getOtherFees()));
-        prompt.add("- Địa chỉ: " + joinAddress(request.getAddress(), request.getWard(), request.getDistrict(), request.getCity()));
+        prompt.add("- Địa chỉ: " + joinAddress(request.getAddress(), request.getWard(), request.getCity()));
         prompt.add("- Có nội thất: " + booleanText(request.getIsFurnished()));
         prompt.add("- Số người tối đa: " + numberText(request.getMaxPeople()));
         prompt.add("- Đối tượng phù hợp: " + enumText(request.getGenderRequirement()));
@@ -344,7 +362,7 @@ public class GeminiRoomCopyService {
         prompt.add("title là tiêu đề tin đăng ngắn gọn, rõ ràng.");
         prompt.add("note là một câu ngắn nói những trường còn thiếu hoặc chưa chắc, hoặc null nếu đã khá đầy đủ.");
         prompt.add("Chỉ trả về JSON hợp lệ với các key đúng thứ tự sau:");
-        prompt.add("title, description, price, area, electricPrice, waterPrice, otherFees, address, ward, district, city, roomType, isFurnished, maxPeople, genderRequirement, amenities, note");
+        prompt.add("title, description, price, area, electricPrice, waterPrice, otherFees, address, ward, city, roomType, isFurnished, maxPeople, genderRequirement, amenities, note");
         prompt.add("");
         prompt.add("Mô tả người dùng:");
         prompt.add(rawDescription);
@@ -355,13 +373,14 @@ public class GeminiRoomCopyService {
         StringJoiner prompt = new StringJoiner("\n");
         prompt.add("Bạn là trợ lý tìm kiếm phòng trọ tại Việt Nam.");
         prompt.add("Hãy đọc nhu cầu tự nhiên của người dùng và trích xuất bộ lọc tìm kiếm.");
-        prompt.add("Chỉ trả về JSON hợp lệ với các key: keyword, district, minPrice, maxPrice, minArea, maxArea, roomType, isFurnished, genderRequirement, sortBy, note.");
+        prompt.add("Chỉ trả về JSON hợp lệ với các key: keyword, ward, minPrice, maxPrice, minArea, maxArea, roomType, isFurnished, genderRequirement, sortBy, note.");
         prompt.add("roomType chỉ được là: PHONG_TRO, CHUNG_CU_MINI, STUDIO, NGAN_PHONG, NHA_NGUYEN_CAN hoặc null.");
         prompt.add("genderRequirement chỉ được là: ALL, MALE, FEMALE hoặc null.");
         prompt.add("sortBy chỉ được là: createdAt, price_asc, price_desc, viewCount hoặc null.");
         prompt.add("Nếu người dùng chỉ nói 'gần', 'yên tĩnh', 'ở ngay', 'an ninh' thì có thể đưa phần còn lại vào keyword để hệ thống tìm tương đối.");
         prompt.add("Nếu người dùng nhắc đến trường đại học, học viện, cao đẳng, bến xe, bệnh viện hoặc landmark, hãy giữ tên địa điểm đó trong keyword.");
-        prompt.add("Nếu biết khá chắc khu vực gần địa điểm đó thì điền thêm district; nếu không chắc thì để district = null, không được đoán bừa.");
+        prompt.add("Nếu người dùng nhắc tới phường/xã cụ thể thì điền ward theo đúng tên đó.");
+        prompt.add("Không dùng trường quận/huyện. Nếu người dùng nói tên quận cũ hoặc thị xã cũ, hãy ưu tiên giữ trong keyword thay vì tạo field riêng.");
         prompt.add("Giá tiền và diện tích phải là số, không có đơn vị.");
         prompt.add("Nếu không chắc một trường thì trả về null.");
         prompt.add("note là một câu ngắn tóm tắt cách bạn hiểu nhu cầu tìm kiếm.");
@@ -389,7 +408,7 @@ public class GeminiRoomCopyService {
         prompt.add("- Điện: " + moneyText(room.getElectricPrice()) + " / kWh");
         prompt.add("- Nước: " + moneyText(room.getWaterPrice()) + " / m3");
         prompt.add("- Phí khác: " + moneyText(room.getOtherFees()));
-        prompt.add("- Địa chỉ: " + joinAddress(room.getAddress(), room.getWard(), room.getDistrict(), room.getCity()));
+        prompt.add("- Địa chỉ: " + joinAddress(room.getAddress(), room.getWard(), room.getCity()));
         prompt.add("- Loại phòng: " + enumText(room.getRoomType()));
         prompt.add("- Nội thất: " + booleanText(room.getIsFurnished()));
         prompt.add("- Số người tối đa: " + numberText(room.getMaxPeople()));
@@ -426,11 +445,10 @@ public class GeminiRoomCopyService {
         return value == null || value.isBlank() ? "Không có" : value.trim();
     }
 
-    private String joinAddress(String address, String ward, String district, String city) {
+    private String joinAddress(String address, String ward, String city) {
         StringJoiner joiner = new StringJoiner(", ");
         addPart(joiner, address);
         addPart(joiner, ward);
-        addPart(joiner, district);
         addPart(joiner, city);
         String result = joiner.toString();
         return result.isBlank() ? "Không có" : result;
@@ -490,6 +508,70 @@ public class GeminiRoomCopyService {
             case "createdAt", "price_asc", "price_desc", "viewCount" -> result;
             default -> null;
         };
+    }
+
+    private AiSearchResponse normalizeAiSearchResponse(String query, Map<String, Object> output) {
+        String keyword = nullableString(output.get("keyword"));
+        String ward = canonicalizeWard(nullableString(output.get("ward")));
+
+        String matchedWardFromQuery = findWardMention(query);
+        if (matchedWardFromQuery != null) {
+            ward = matchedWardFromQuery;
+        }
+
+        return new AiSearchResponse(
+                keyword,
+                ward,
+                nullableDecimal(output.get("minPrice")),
+                nullableDecimal(output.get("maxPrice")),
+                nullableDecimal(output.get("minArea")),
+                nullableDecimal(output.get("maxArea")),
+                parseRoomType(output.get("roomType")),
+                nullableBoolean(output.get("isFurnished")),
+                parseGenderRequirement(output.get("genderRequirement")),
+                parseSortBy(output.get("sortBy")),
+                nullableString(output.get("note"))
+        );
+    }
+
+    private String findWardMention(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+
+        String normalizedText = normalizeLocation(text);
+        for (String ward : HANOI_WARDS) {
+            if (normalizedText.contains(normalizeLocation(ward))) {
+                return ward;
+            }
+        }
+        return null;
+    }
+
+    private String canonicalizeWard(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        String normalizedValue = normalizeLocation(value);
+        for (String ward : HANOI_WARDS) {
+            if (normalizeLocation(ward).equals(normalizedValue)) {
+                return ward;
+            }
+        }
+        return null;
+    }
+
+    private boolean normalizedContains(String source, String token) {
+        if (source == null || token == null || source.isBlank() || token.isBlank()) {
+            return false;
+        }
+        return normalizeLocation(source).contains(normalizeLocation(token));
+    }
+
+    private String normalizeLocation(String value) {
+        String normalized = Normalizer.normalize(value.toLowerCase(Locale.ROOT), Normalizer.Form.NFD);
+        return normalized.replaceAll("\\p{M}+", "").replaceAll("[^a-z0-9]+", " ").trim();
     }
 
     private String normalizeActionUrl(Object value) {

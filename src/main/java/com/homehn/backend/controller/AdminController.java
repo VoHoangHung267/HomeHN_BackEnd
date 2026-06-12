@@ -64,14 +64,14 @@ class AdminController {
     @GetMapping("/rooms/all")
     public ResponseEntity<ApiResponse<Page<RoomResponse>>> allRooms(
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String district,
+            @RequestParam(required = false) String ward,
             @RequestParam(required = false) RoomEntity.RoomStatus status,
             @RequestParam(required = false) Long landlordId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
         return ResponseEntity.ok(ApiResponse.ok(
-                adminService.getAllRooms(keyword, district, status, landlordId, page, size)
+                adminService.getAllRooms(keyword, ward, status, landlordId, page, size)
         ));
     }
 

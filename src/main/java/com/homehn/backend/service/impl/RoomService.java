@@ -49,7 +49,7 @@ public class RoomService {
     private final ContractLifecycleService contractLifecycleService;
 
     public Page<RoomResponse> search(
-            String keyword, String district,
+            String keyword, String ward,
             BigDecimal minPrice, BigDecimal maxPrice,
             BigDecimal minArea, BigDecimal maxArea,
             RoomEntity.RoomType roomType, Boolean isFurnished,
@@ -58,7 +58,7 @@ public class RoomService {
             int page, int size, Long currentUserId
     ) {
         contractLifecycleService.syncNow();
-        var spec = RoomSpecification.filter(keyword, district, minPrice, maxPrice,
+        var spec = RoomSpecification.filter(keyword, ward, minPrice, maxPrice,
                 minArea, maxArea, roomType, isFurnished, gender);
         var pageable = PageRequest.of(page, size, resolveSort(sortBy));
         Page<RoomEntity> roomPage = roomRepo.findAll(spec, pageable);
@@ -79,7 +79,7 @@ public class RoomService {
 
         var spec = RoomSpecification.filter(
                 null,
-                baseRoom.getDistrict(),
+                baseRoom.getWard(),
                 minPrice,
                 maxPrice,
                 minArea,
@@ -99,7 +99,7 @@ public class RoomService {
         if (matched.size() < 6) {
             List<Long> existingIds = matched.stream().map(RoomEntity::getId).toList();
             List<RoomEntity> fallback = roomRepo.findAll(
-                            RoomSpecification.filter(null, baseRoom.getDistrict(), null, null, null, null, null, null, null),
+                            RoomSpecification.filter(null, baseRoom.getWard(), null, null, null, null, null, null, null),
                             PageRequest.of(0, 12, Sort.by(Sort.Direction.DESC, "viewCount").and(Sort.by(Sort.Direction.DESC, "createdAt")))
                     ).getContent().stream()
                     .filter(room -> !room.getId().equals(roomId))
@@ -161,7 +161,6 @@ public class RoomService {
                 .otherFees(req.getOtherFees())
                 .address(req.getAddress())
                 .ward(req.getWard())
-                .district(req.getDistrict())
                 .city(req.getCity())
                 .latitude(req.getLatitude())
                 .longitude(req.getLongitude())
@@ -223,7 +222,6 @@ public class RoomService {
         room.setOtherFees(req.getOtherFees());
         room.setAddress(req.getAddress());
         room.setWard(req.getWard());
-        room.setDistrict(req.getDistrict());
         room.setCity(req.getCity());
         room.setLatitude(req.getLatitude());
         room.setLongitude(req.getLongitude());

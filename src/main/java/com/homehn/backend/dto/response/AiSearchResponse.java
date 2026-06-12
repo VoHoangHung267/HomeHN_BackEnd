@@ -14,7 +14,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class AiSearchResponse {
     private String keyword;
-    private String district;
+    private String ward;
     private BigDecimal minPrice;
     private BigDecimal maxPrice;
     private BigDecimal minArea;

@@ -48,10 +48,8 @@ public class RoomEntity {
     @Column(nullable = false)
     private String address;
 
-    private String ward;
-
     @Column(nullable = false)
-    private String district;
+    private String ward;
 
     @Column(nullable = false)
     private String city;

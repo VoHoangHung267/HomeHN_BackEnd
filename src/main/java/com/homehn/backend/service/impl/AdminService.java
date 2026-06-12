@@ -103,7 +103,7 @@ public class AdminService {
     @Transactional(readOnly = true)
     public Page<RoomResponse> getAllRooms(
             String keyword,
-            String district,
+            String ward,
             RoomEntity.RoomStatus status,
             Long landlordId,
             int page,
@@ -116,11 +116,11 @@ public class AdminService {
                 predicates.add(cb.or(
                         cb.like(cb.lower(root.get("title")), kw),
                         cb.like(cb.lower(root.get("address")), kw),
-                        cb.like(cb.lower(root.get("district")), kw)
+                        cb.like(cb.lower(root.get("ward")), kw)
                 ));
             }
-            if (district != null && !district.isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("district")), "%" + district.toLowerCase() + "%"));
+            if (ward != null && !ward.isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("ward")), "%" + ward.toLowerCase() + "%"));
             }
             if (status != null) {
                 predicates.add(cb.equal(root.get("status"), status));

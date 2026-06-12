@@ -47,7 +47,7 @@ class RoomController {
     @GetMapping
     public ResponseEntity<ApiResponse<Page<RoomResponse>>> search(
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String district,
+            @RequestParam(required = false) String ward,
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(required = false) BigDecimal minArea,
@@ -64,7 +64,7 @@ class RoomController {
         return ResponseEntity.ok(ApiResponse.ok(
                 roomService.search(
                         keyword,
-                        district,
+                        ward,
                         minPrice,
                         maxPrice,
                         minArea,

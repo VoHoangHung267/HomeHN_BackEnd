@@ -22,7 +22,7 @@ public class RoomSpecification {
 
     public static Specification<RoomEntity> filter(
             String keyword,
-            String district,
+            String ward,
             BigDecimal minPrice, BigDecimal maxPrice,
             BigDecimal minArea, BigDecimal maxArea,
             RoomEntity.RoomType roomType,
@@ -40,9 +40,9 @@ public class RoomSpecification {
             if (keyword != null && !keyword.isBlank()) {
                 predicates.add(buildKeywordPredicate(keyword, root, cb));
             }
-            if (district != null && !district.isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("district")),
-                        "%" + district.toLowerCase(Locale.ROOT) + "%"));
+            if (ward != null && !ward.isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("ward")),
+                        "%" + ward.toLowerCase(Locale.ROOT) + "%"));
             }
 
             if (minPrice != null) {
@@ -85,7 +85,6 @@ public class RoomSpecification {
             orPredicates.add(cb.like(cb.lower(root.get("description")), like));
             orPredicates.add(cb.like(cb.lower(root.get("address")), like));
             orPredicates.add(cb.like(cb.lower(root.get("ward")), like));
-            orPredicates.add(cb.like(cb.lower(root.get("district")), like));
             orPredicates.add(cb.like(cb.lower(root.get("city")), like));
         }
 

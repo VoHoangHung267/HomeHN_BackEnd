@@ -17,7 +17,6 @@ public class GenerateRoomDescriptionRequest {
     private String title;
     private String address;
     private String ward;
-    private String district;
     private String city;
     private BigDecimal price;
     private BigDecimal area;
