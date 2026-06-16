@@ -12,15 +12,3 @@ ALTER TABLE rental_bookings
         'PAYMENT_FAILED',
         'COMPLETED'
     ) NOT NULL DEFAULT 'PENDING_PAYMENT';
-
-ALTER TABLE rooms
-    MODIFY COLUMN status ENUM(
-        'ACTIVE',
-        'PENDING',
-        'REJECTED',
-        'HIDDEN',
-        'EXPIRED',
-        'RENTED',
-        'AVAILABLE_SOON',
-        'HIDDEN_REVIEW'
-    ) NOT NULL DEFAULT 'PENDING';
