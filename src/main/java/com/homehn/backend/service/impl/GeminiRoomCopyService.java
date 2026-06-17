@@ -281,7 +281,7 @@ public class GeminiRoomCopyService {
 
         if (response.statusCode() >= 400) {
             log.error("Gemini {} HTTP error status={} body={}", useCase, response.statusCode(), abbreviate(response.body()));
-            throw new AppException("Gemini không phản hồi hợp lệ: " + response.body(), 502);
+            throw mapGeminiHttpException(response.statusCode(), response.body());
         }
 
         Map<String, Object> root;
@@ -312,6 +312,43 @@ public class GeminiRoomCopyService {
         } catch (RuntimeException ex) {
             log.error("Gemini {} returned invalid JSON payload: {}", useCase, abbreviate(text), ex);
             throw new AppException("Gemini trả về JSON không hợp lệ.", 502);
+        }
+    }
+
+    private AppException mapGeminiHttpException(int statusCode, String responseBody) {
+        Map<String, Object> payload = tryParseErrorPayload(responseBody);
+        String upstreamStatus = nestedString(payload, "error", "status");
+        String upstreamMessage = nestedString(payload, "error", "message");
+        String normalizedUpstream = (upstreamStatus + " " + upstreamMessage).toLowerCase();
+
+        if (statusCode == 429 || normalizedUpstream.contains("resource_exhausted") || normalizedUpstream.contains("quota")) {
+            return new AppException("AI đang hết quota tạm thời. Vui lòng thử lại sau ít phút.", 503);
+        }
+
+        if (statusCode == 503 || normalizedUpstream.contains("unavailable") || normalizedUpstream.contains("high demand")) {
+            return new AppException("AI đang bận do lượng yêu cầu cao. Vui lòng thử lại sau ít phút.", 503);
+        }
+
+        if (statusCode == 403 || normalizedUpstream.contains("permission_denied") || normalizedUpstream.contains("api key")) {
+            return new AppException("AI trên server đang cấu hình chưa hợp lệ. Vui lòng liên hệ quản trị viên để kiểm tra API key.", 502);
+        }
+
+        if (!upstreamMessage.isBlank()) {
+            return new AppException("AI tạm thời chưa thể xử lý yêu cầu: " + upstreamMessage, 502);
+        }
+
+        return new AppException("AI tạm thời chưa phản hồi hợp lệ. Vui lòng thử lại sau.", 502);
+    }
+
+    private Map<String, Object> tryParseErrorPayload(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return Map.of();
+        }
+
+        try {
+            return JsonParserFactory.getJsonParser().parseMap(responseBody);
+        } catch (RuntimeException ex) {
+            return Map.of();
         }
     }
 
